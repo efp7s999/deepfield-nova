@@ -1,0 +1,1563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deepfield NOVA</title>
+<!--
+  Deepfield NOVA: your servers, agents or notes drawn as a living patch of sky.
+  One file. No build step, no libraries, no network requests except the one data file named in CONFIG below.
+  Data contract: SCHEMA.md.  Connecting your own systems: AGENTS.md.  Licence: MIT.
+-->
+<style>
+:root{
+  --ink:#e9edff; --dim:#9aa3cf; --faint:#666e98;
+  --glass:rgba(9,12,30,.56); --edge:rgba(150,175,255,.22);
+  --ok:#7fe3c3; --warn:#ffc266; --bad:#ff6b7a; --off:#7b819f; --unk:#b9a6ff; --acc:#7ef0ff;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:#02030a;color:var(--ink);font:13px/1.45 var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:inherit}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#c.pt{cursor:pointer}
+#c:active{cursor:grabbing}
+
+/* panels: dark glass over the sky. The blur is dropped if the GPU is struggling (body.lite) */
+.panel{position:fixed;background:var(--glass);border:1px solid var(--edge);border-radius:12px;backdrop-filter:blur(9px) saturate(1.25);-webkit-backdrop-filter:blur(9px) saturate(1.25)}
+.lite .panel,.lite #alert{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(9,12,30,.82)}
+h1,h2,h3,p{margin:0}
+
+#brand{top:16px;left:20px;padding:10px 16px 9px;pointer-events:none}
+#brand h1{font-size:20px;font-weight:650;letter-spacing:.01em}
+#brand p{color:var(--dim)}
+#clock{font:500 13px var(--mono);color:var(--ink);margin-right:8px}
+
+#alert{position:fixed;top:14px;left:50%;transform:translateX(-50%);max-width:min(46vw,640px);padding:8px 16px 8px 12px;border-radius:999px;
+  display:flex;gap:10px;align-items:center;background:rgba(88,10,26,.6);border:1px solid rgba(255,107,122,.75);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
+  box-shadow:0 0 26px rgba(255,60,90,.28);opacity:0;visibility:hidden;transition:opacity .25s,visibility .25s}
+#alert.on{opacity:1;visibility:visible}
+#alert.warn{background:rgba(84,52,6,.6);border-color:rgba(255,194,102,.75);box-shadow:0 0 26px rgba(255,180,60,.22)}
+#alert.info{background:rgba(12,20,46,.62);border-color:var(--edge);box-shadow:none}
+#alert.info i{background:var(--acc);box-shadow:0 0 8px var(--acc);animation:none}
+#alert i{flex:none;width:9px;height:9px;border-radius:50%;background:var(--bad);box-shadow:0 0 10px var(--bad);animation:beat 1.1s ease-in-out infinite}
+#alert.warn i{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+#alert b{font-weight:650;white-space:nowrap}
+#alert span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#alert em{font:normal 12px var(--mono);color:var(--dim);white-space:nowrap}
+@keyframes beat{50%{opacity:.35;transform:scale(.8)}}
+
+#fleet{top:16px;right:20px;width:252px;padding:14px 16px 12px}
+#read{top:100px;left:20px;width:292px;max-height:calc(100vh - 190px);overflow:auto;padding:14px 16px;opacity:0;visibility:hidden;transform:translateX(-8px);transition:opacity .18s,transform .18s,visibility .18s;scrollbar-width:thin;scrollbar-color:var(--faint) transparent}
+#read.on{opacity:1;visibility:visible;transform:none}
+.panel h2{font-size:15px;font-weight:650;display:flex;align-items:baseline;gap:8px;overflow-wrap:anywhere}
+.panel h3{font-size:12px;font-weight:600;color:var(--dim);margin:12px 0 4px}
+.panel .sub{color:var(--dim);font-size:12px}
+.tag{font:500 11px var(--mono);padding:1px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .off{color:var(--off)} .unknown{color:var(--unk)}
+.un{color:var(--faint);font-weight:400}
+
+/* the fleet's tally: one bar cut into the share of each state */
+#tally{display:flex;height:6px;border-radius:3px;overflow:hidden;margin:10px 0 8px;background:rgba(255,255,255,.07);gap:2px}
+#tally i{display:block;height:100%;min-width:3px;background:currentColor;border-radius:2px}
+.counts{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;font:500 13px var(--mono)}
+.counts div{display:flex;flex-direction:column}
+.counts small{font:11px var(--sans);color:var(--dim)}
+#groups{list-style:none;margin:2px -6px 0;padding:0 6px;max-height:36vh;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--faint) transparent}
+#groups button{display:flex;width:100%;gap:8px;align-items:center;padding:3px 6px;margin:0 -6px;border-radius:6px}
+#groups button:hover,#groups button.sel{background:rgba(140,170,255,.13)}
+#groups i,.dot{flex:none;width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
+#groups span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+#groups em{font:normal 12px var(--mono);color:var(--dim)}
+#src{margin-top:10px;padding-top:8px;border-top:1px solid var(--edge);font-size:12px;color:var(--dim)}
+
+/* the readout: rows of name and value; a metric also gets a bar, but only if it was measured */
+.row{display:flex;flex-wrap:wrap;justify-content:space-between;column-gap:12px;color:var(--dim)}
+.row b{font:400 12px/1.6 var(--mono);color:var(--ink);margin-left:auto;text-align:right;overflow-wrap:anywhere;min-width:0}
+.bar{height:4px;border-radius:2px;background:rgba(255,255,255,.08);margin:1px 0 6px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:2px;background:linear-gradient(90deg,#6aa8ff,#7ef0ff)}
+.bar.w i{background:linear-gradient(90deg,#ffb04d,#ffd27a)} .bar.b i{background:linear-gradient(90deg,#ff4d6a,#ff8a70)}
+.list{list-style:none;margin:0;padding:0}
+.list li{display:flex;gap:8px;align-items:baseline;padding:1px 0}
+.list .dot{position:relative;top:-1px;width:7px;height:7px}
+.list span{flex:1;min-width:0;overflow-wrap:anywhere}
+.list em{font:normal 12px var(--mono);color:var(--dim)}
+.list button{color:var(--ink);text-decoration:underline;text-decoration-color:var(--faint);text-underline-offset:3px}
+.prob{color:var(--bad);margin-top:6px}
+.prob.warn{color:var(--warn)}
+#read .close{position:absolute;top:8px;right:10px;width:26px;height:26px;border-radius:6px;color:var(--dim);text-align:center;font-size:16px;line-height:26px}
+#read .close:hover{background:rgba(140,170,255,.13);color:var(--ink)}
+
+/* labels: zero-size anchors moved by transform alone, never measured while drawing */
+#labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.lb{position:absolute;left:0;top:0;width:0;height:0;visibility:hidden}   /* only the few labels on show are promoted to their own layers: see setLabel */
+.lb i{display:block;width:0;font-style:normal}
+.lb span{position:absolute;left:0;top:0;transform:translateX(-50%);white-space:nowrap;text-align:center;font-size:12.5px;line-height:1.25;pointer-events:auto;cursor:pointer;
+  color:var(--ink);text-shadow:0 0 3px #000,0 0 6px #000;padding:1px 6px;border-radius:5px;background:rgba(3,5,16,.52)}   /* a dark backing, so a name stays readable over bright gas */
+.lb small{display:block;font-size:11px;color:var(--dim)}
+.lb.g span{font-size:14px;font-weight:650;letter-spacing:.02em}
+.lb.sel span{color:var(--acc)}
+.lb.bad span{color:var(--bad)} .lb.warn span{color:var(--warn)} .lb.off span{color:var(--off)}
+.lb:focus-visible{outline:0}
+.lb:focus-visible span{outline:2px solid var(--acc);outline-offset:1px}
+
+#foot{position:fixed;left:20px;right:20px;bottom:12px;display:flex;gap:18px;align-items:center;font-size:12px;color:var(--dim);text-shadow:0 0 4px #000,0 0 2px #000;pointer-events:none}
+#foot{flex-wrap:wrap;justify-content:flex-end;row-gap:6px;column-gap:12px}
+#note{color:var(--warn);margin-right:auto}
+#evt{color:var(--dim)}
+#hint{transition:opacity .6s}
+#foot>button{pointer-events:auto;padding:3px 10px;border:1px solid var(--edge);border-radius:999px;color:var(--ink);background:rgba(9,12,30,.55)}
+#foot>button:hover{border-color:var(--acc)}
+/* a row of choices, one of them pressed */
+.seg{display:flex;align-items:center;gap:1px;pointer-events:auto;padding:2px 3px 2px 10px;border:1px solid var(--edge);border-radius:999px;background:rgba(9,12,30,.55);text-shadow:none}
+.seg[hidden]{display:none}
+.seg b{font-weight:500;color:var(--dim);margin-right:5px}
+.seg button{padding:1px 8px;border-radius:999px;color:var(--dim)}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-pressed=true]{background:rgba(126,240,255,.17);color:var(--ink)}
+
+@media (max-width:820px){
+  #fleet,#hint,#detail,#events,#clouds,#scenery,#evt{display:none}
+  #alert{top:auto;bottom:44px;max-width:calc(100vw - 24px)}
+  #read{top:auto;bottom:44px;left:8px;right:8px;width:auto;max-height:46vh}
+  .lb small{display:none}
+}
+@media (max-width:1800px){#hint{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="A sky of stars standing for the hosts in the data file. The same information is in the panels and labels."></canvas>
+<div id="labels"></div>
+
+<header id="brand" class="panel">
+  <h1 id="title">Deepfield NOVA</h1>
+  <p><span id="clock"></span><span id="sub">Waiting for data</span></p>
+</header>
+
+<div id="alert" role="status" aria-live="polite"><i></i><b id="alertWho"></b><span id="alertText"></span><em id="alertN"></em></div>
+
+<aside id="fleet" class="panel" aria-label="Fleet summary">
+  <h2><span id="total">0</span> <span class="sub" id="totalWord">nodes</span></h2>
+  <div id="tally"></div>
+  <div class="counts" id="counts"></div>
+  <h3 id="groupsHead">Groups</h3>
+  <ul id="groups"></ul>
+  <p id="src"></p>
+</aside>
+
+<aside id="read" class="panel" aria-live="polite"></aside>
+
+<footer id="foot">
+  <span id="note"></span>
+  <span id="evt"></span>
+  <span id="hint">Drag to orbit · scroll to zoom · click a star</span>
+  <div class="seg" id="motion" role="group" aria-label="Motion"><b>Motion</b><button type="button" data-v="off">Off</button><button type="button" data-v="slow">Slow</button><button type="button" data-v="normal">Normal</button><button type="button" data-v="fast">Fast</button></div>
+  <div class="seg" id="detail" role="group" aria-label="Detail"><b>Detail</b><button type="button" data-v="auto">Auto</button><button type="button" data-v="low">Low</button><button type="button" data-v="medium">Medium</button><button type="button" data-v="high">High</button></div>
+  <div class="seg" id="clouds" role="group" aria-label="Clouds"><b>Clouds</b><button type="button" data-v="dim">Dim</button><button type="button" data-v="normal">Normal</button><button type="button" data-v="vivid">Vivid</button></div>
+  <div class="seg" id="scenery" role="group" aria-label="Scenery"><b>Scenery</b><button type="button" data-k="planet" title="Show or hide the ringed planet">Planet</button><button type="button" data-k="remnant" title="Show or hide the supernova remnant">Supernova</button></div>
+  <div class="seg" id="events" role="group" aria-label="Sky events"><b>Sky events</b><button type="button" data-v="on">On</button><button type="button" data-v="off">Off</button></div>
+  <button type="button" id="home">Whole sky</button>
+  <button type="button" id="full">Full screen</button>
+</footer>
+<script>
+'use strict';
+/* ── CONFIG: the only part most people need to touch */
+const CONFIG = {
+  dataUrl: 'deepfield.json',  // the data file, relative to this page. Its shape is in SCHEMA.md
+  pollMs: 10000,              // how often to fetch it
+  title: '',                  // shown top left; leave empty to use the data file's own "title"
+  demoWhenMissing: true,      // no data file on the first try: show a made-up estate, clearly marked, instead of an empty sky
+  tour: true,                 // left alone for a while, the camera visits each galaxy in turn (good for a wall display)
+  tourEverySec: 16,
+  pauseOnBlur: false,         // true: stop drawing whenever the window loses focus, not only when the tab is hidden
+  nebula: 1.0,                // sky brightness, 0 to 1.5
+  gpuBudgetMs: 6,             // if a frame costs the GPU more than this, the scene drops to a lower resolution. 0 turns the guard off
+  staleAfterSec: 120,         // data older than this (by its own "generated" time) is flagged as stale
+  events: true,               // now and then something happens in the sky: a black hole, a supernova, a great comet. Scenery only, never data
+  eventEverySec: [22, 48],    // the gap between sky events, picked at random between these two
+  scenery: true,              // two things fixed far in the background: a ringed giant (after J1407b, the "Super Saturn") and a supernova remnant
+};
+
+/* ── LIMITS: how much the sky can hold. Every buffer is sized once from these, so raising one costs memory, not speed, until the data really is that big.
+   What a large estate costs is drawing: each link is a ribbon and a few comets, each node a small quad and a label. As a guide, 512 nodes and 1,024 links
+   are comfortable; past that, gather things up in the data instead (a node per rack or namespace, its members as moons). `groups` can go to about 80 before
+   the shaders run out of room for their galaxy tables; `nodes` to 4,096 or more (they travel in a texture); `sprites` is all comets, moons and falling stars. */
+const NAME = 'Deepfield NOVA';                 // what this page calls itself, wherever the data gives no title of its own
+const LIMITS = { nodes: 512, groups: 32, links: 1024, sprites: 8000 };
+
+/* ── what the viewer chooses with the controls at the bottom; kept in this browser only */
+const PREF = { motion: 'normal', detail: 'auto', events: 'on', clouds: 'normal', planet: 'on', remnant: 'on', chosen: false };   // chosen: has the viewer picked a motion setting, or are we still following the system
+const CLOUDS = { dim: 0.45, normal: 0.72, vivid: 1.1 };   // how bright the gas is, for each setting of the Clouds control (times CONFIG.nebula)
+const DETAIL = {              // what each detail level costs: resolution, counts, frame rate. "auto" is high with a pixel ceiling, and the load guard free to lower the resolution
+  // res: canvas pixels per screen pixel · px: the most pixels the canvas may ever have · bg: the sky and the clouds are drawn at this fraction of the canvas and enlarged (they are soft: nothing is lost)
+  low:    { res: 0.6, px: 1.3e6, bg: 0.4, parts: 3000, stars: 1200, puffs: 10, comets: 0.5, labels: 14, minDt: 0.032, blur: false },
+  medium: { res: 0.8, px: 2.6e6, bg: 0.5, parts: 6000, stars: 1800, puffs: 20, comets: 0.8, labels: 22, minDt: 0.0125, blur: true },
+  high:   { res: 1.0, px: 8.3e6, bg: 0.6, parts: 9000, stars: 2400, puffs: 32, comets: 1.0, labels: 30, minDt: 0.0125, blur: true },
+};
+DETAIL.auto = Object.assign({}, DETAIL.high, { px: 4.2e6, bg: 0.5 });
+
+const MAXN = LIMITS.nodes, MAXG = LIMITS.groups, MAXL = LIMITS.links, MAXS = LIMITS.sprites, STARS = 2400, GPARTS = 9000, MAXP = 32, MAXEV = 4, SEG = 24, CAP = 30, EXT = 6, BAKED = 8;   // BAKED: how many painting steps the start-up takes
+const FOV = 42 * Math.PI / 180, TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const hex = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+const STATES = ['ok', 'warn', 'bad', 'off', 'unknown'];
+const WORD = { ok: 'ok', warn: 'needs a look', bad: 'failing', off: 'off', unknown: 'unknown' };
+// What each state looks like as a star. Healthy stars are cool blue-white, so amber and red always mean something.
+const STAR = { ok: [hex('#9ec9ff'), hex('#8fe9ff'), hex('#d9dcff'), hex('#a6b4ff')], warn: hex('#ffb347'), bad: hex('#ff4b57'), off: hex('#6b6f8a'), unknown: hex('#b9a6ff') };
+const HUES = ['#7c8cff', '#5fb6ff', '#59d6d0', '#c77dff', '#ff7ac8', '#8fa2ff', '#4fd1ff', '#b48cff'].map(hex);   // galaxy tints; none amber or red
+const LINKS = ['#8fb4ff', '#7ef0ff', '#c9a2ff', '#9dffd9', '#ffa8e0'].map(hex);
+
+/* ── shaders
+   Ten small programs, eight draw calls a frame (nine while a sky event is on), no post-processing. The nebula is painted once into a cube map
+   at start-up; after that the sky costs two texture reads a pixel. Everything that moves is worked out on the
+   GPU from the clock, so no buffer is rewritten to animate. Nothing is depth-tested: it is all light, and light adds. */
+const HEAD = `#version 300 es
+precision highp float;
+uniform mat4 uVP; uniform mat3 uV2W; uniform vec2 uView, uT; uniform vec4 uCam, uX;
+// uView viewport in device px · uT time as (whole thousands of seconds, the rest) · uCam px per world unit at depth 1, device pixel ratio, fog start, fog rate
+// uX: 1 when motion is off, how alarmed the estate is (0 to 1), sky brightness, seconds since data last arrived
+const float TAU = 6.2831853, PI = 3.14159265;
+float turns(float r){ return fract(uT.x * r) + uT.y * r; }       // cycles made by a clock of r cycles a second; split time keeps it exact after days
+float fog(float w){ return exp(-max(w - uCam.z, 0.0) * uCam.w); }
+float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+float hash(float n){ n = fract(n * 0.1031); n *= n + 33.33; return fract(n * (n + n)); }
+float line(float v, float w){ return 1.0 - smoothstep(w, w * 2.0, abs(v)); }
+`;
+const NODES = `
+uniform sampler2D uNodes;                                         // every star's position and radius, one texel each: a texture, so their number has no small ceiling
+vec4 node(float i){ return texelFetch(uNodes, ivec2(int(i), 0), 0); }
+vec3 curve(vec4 A, vec4 B, float bend, float lane, float t){      // the path between two stars: a bowed arc from surface to surface
+  vec3 d = B.xyz - A.xyz; float len = max(length(d), 1e-3);
+  t = mix(A.w * 1.6 / len, 1.0 - B.w * 1.6 / len, t);
+  vec3 C = (A.xyz + B.xyz) * 0.5 + vec3(0.0, len * bend, 0.0) + normalize(cross(d, vec3(0.0, 1.0, 0.0)) + 1e-4) * len * lane;
+  float s = 1.0 - t; return s * s * A.xyz + 2.0 * s * t * C + t * t * B.xyz;
+}`;
+const GALAXY = `
+uniform vec4 uGal[${MAXG}]; uniform vec3 uGU[${MAXG}], uGV[${MAXG}];   // every galaxy: centre, radius · two axes of its disc, already turned to where the spiral is now`;
+
+// Run once per cube face at start-up (and once for the cloud sprite): layered noise, bent by more noise until it looks like gas.
+const BAKE = [`#version 300 es
+void main(){ gl_Position = vec4(vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0, 0.0, 1.0); }`, `#version 300 es
+precision highp float;
+uniform vec3 uR, uU, uF; uniform vec2 uSize; uniform float uSeed, uMode;
+out vec4 o;
+float h3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vn(vec3 x){
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1, 0, 0)), f.x), mix(h3(i + vec3(0, 1, 0)), h3(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0, 0, 1)), h3(i + vec3(1, 0, 1)), f.x), mix(h3(i + vec3(0, 1, 1)), h3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p, int n){ float a = 0.5, s = 0.0; for (int i = 0; i < n; i++){ s += a * vn(p); p = p * 2.02 + vec3(13.1, 7.7, 3.3); a *= 0.5; } return s; }
+void main(){
+  vec2 uv = gl_FragCoord.xy / uSize * 2.0 - 1.0;
+  if (uMode > 1.5){                                               // a supernova remnant: a ragged shell of hot gas round a cooler, hollow heart, shot through with filaments
+    vec3 p = vec3(uv * 2.2, uSeed + 9.0); float w1 = fbm(p + 3.0, 5), w2 = fbm(p * 1.7 + 11.0, 5), r = length(uv) + (w1 - 0.5) * 0.36;
+    float fil = 1.0 - abs(2.0 * fbm(vec3(uv * 5.0 + (w1 - 0.5) * 2.0, 3.0), 5) - 1.0), shell = exp(-(r - 0.62) * (r - 0.62) / 0.026); fil *= fil * fil;
+    vec3 col = mix(vec3(1.0, 0.36, 0.08), vec3(1.0, 0.72, 0.25), w2) * shell * (0.3 + 1.5 * fil) * (0.55 + 0.9 * w2)       // the shell: orange into gold
+      + vec3(0.9, 0.2, 0.16) * shell * smoothstep(0.6, 0.9, r) * 0.55                                                       // redder at its outer edge
+      + vec3(0.26, 0.24, 0.8) * (1.0 - smoothstep(0.2, 0.72, r)) * (0.2 + 1.0 * fil * w1);                                          // the hollow: thin blue-violet
+    o = vec4(col * (1.0 - smoothstep(0.6, 1.0, r)), 1.0); return;
+  }
+  if (uMode > 0.5){                                               // the flat cloud used for the puffs that drift among the galaxies
+    vec3 p = vec3(uv * 2.0, uSeed); vec2 w = vec2(fbm(p + 5.2, 4), fbm(p + 9.1, 4)) - 0.5;
+    o = vec4(smoothstep(0.28, 0.72, fbm(vec3(uv * 2.3 + w * 2.2, uSeed + 1.0), 5)), smoothstep(0.28, 0.72, fbm(vec3(uv * 3.1 - w * 1.8, uSeed + 4.0), 5)), 0.0, 1.0);
+    return;
+  }
+  vec3 d = normalize(uF + uv.x * uR + uv.y * uU);                 // this texel's direction in the sky
+  vec3 w = vec3(fbm(d * 1.4 + 3.1, 4), fbm(d * 1.4 + 7.7, 4), fbm(d * 1.4 + 11.3, 4)) - 0.5;
+  float south = 0.1 * (1.0 - smoothstep(-0.55, 0.25, d.y));              // the camera mostly looks down into the scene, so the lower sky is where the gas is thickest
+  float m1 = smoothstep(0.37, 0.56, fbm(d * 0.9 + uSeed, 3) + south), m2 = smoothstep(0.37, 0.56, fbm(d * 0.9 + uSeed + 41.0, 3) + south);   // where each of the two gases is at all: part of the sky stays dark
+  float a = fbm(d * 2.0 + w * 2.4 + uSeed + 2.0, 6), b = fbm(d * 2.6 - w * 2.6 + uSeed + 23.0, 6);
+  float f = 1.0 - abs(2.0 * fbm(d * 4.0 + w * 3.2 + 31.0, 5) - 1.0);                    // thin bright filaments
+  o = vec4(smoothstep(0.27, 0.7, a) * m1, smoothstep(0.27, 0.7, b) * m2, f * f, smoothstep(0.5, 0.7, fbm(d * 3.0 + w * 1.6 + 57.0, 5)));   // gas one, gas two, filaments, dust lanes
+}`];
+
+const SRC = {
+  // The sky: the baked nebula read twice, the two reads drifting against each other so the gas seems to churn.
+  sky: [`
+uniform vec4 uSky;                                                // tan(half the field of view) across and up, how far the sky has faded in, 0
+out vec3 vD;
+void main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0; vD = uV2W * vec3(p * uSky.xy, -1.0); gl_Position = vec4(p, 0.0, 1.0); }`, `
+uniform samplerCube uTex; uniform vec4 uSky, uRot, uStorm; uniform vec3 uPA, uPB, uPC;   // uRot: cosine and sine of the two drift angles · uStorm: where a storm is, how strong · three colours: gas one, gas two, where they meet
+in vec3 vD; out vec4 o;
+void main(){
+  vec3 d = normalize(vD), d1 = vec3(uRot.x * d.x + uRot.y * d.z, d.y, uRot.x * d.z - uRot.y * d.x);
+  vec4 s1 = texture(uTex, d1);
+  vec3 d2 = vec3(d.x, uRot.z * d.y - uRot.w * d.z, uRot.w * d.y + uRot.z * d.z) + (s1.bga - 0.5) * 0.06;
+  vec4 s2 = texture(uTex, d2.zxy);                                // the same sky read on its side: a second layer that owes nothing to the first
+  float A = s1.r * (0.45 + 0.8 * s2.b), B = s2.g * (0.45 + 0.8 * s1.b), dust = 1.0 - 0.72 * s1.a * (0.35 + 0.65 * s2.a);
+  vec3 col = (uPA * A * (0.25 + A) + uPB * B * (0.25 + B)) * 0.75 + uPC * A * B * 1.3;
+  if (uStorm.w > 0.0){                                            // a storm in the gas: where the filaments of the two layers cross, they flash, a few times a second
+    float near = max(dot(d, uStorm.xyz), 0.0), bolt = s1.b * s2.b; near *= near; near *= near; near *= near; near *= near; bolt *= bolt * bolt;   // near: a patch some thirty degrees across
+    col += vec3(0.7, 0.78, 1.0) * near * (bolt * 3.2 + (A + B) * 0.1) * uStorm.w * step(0.4, hash(floor(turns(9.0)) + 3.0)) * (0.35 + 0.65 * hash(floor(turns(23.0)) + 7.0));
+  }
+  col = (1.0 - exp(-col * 1.5)) * 0.8;                              // a soft shoulder: the thickest gas glows without burning out to flat colour
+  o = vec4(col * dust * uSky.z * uX.z, 1.0);
+}`],
+
+  // The sky and the clouds are soft, so they are drawn into small off-screen pictures and enlarged onto the canvas by this: a quarter of the pixel work for the same look.
+  blit: [`
+out vec2 vUV;
+void main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUV = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`, `
+uniform sampler2D uTex; uniform float uDither;
+in vec2 vUV; out vec4 o;
+void main(){ o = vec4(max(texture(uTex, vUV).rgb + (ign(gl_FragCoord.xy) - 0.5) * uDither, 0.0), 1.0); }   // dithered here, at full size, so the dark gradients do not band
+`],
+
+  // Far stars: points at real distances, so they slide past each other as the camera moves. Each twinkles at its own rate.
+  star: [`
+in vec4 aS; in vec2 aS2;                                          // position, size · brightness, seed
+out vec4 vC;
+void main(){
+  vec4 c = uVP * vec4(aS.xyz, 1.0);
+  float deep = 0.2 + 0.6 * step(0.7, fract(aS2.y * 13.7));
+  float tw = 1.0 - deep * (0.5 - 0.5 * sin(TAU * turns(0.08 + 0.5 * fract(aS2.y * 7.1)) + aS2.y * 40.0));
+  gl_PointSize = clamp(aS.w * (0.6 + 16.0 / c.w), 1.0, 3.6) * uCam.y;
+  vec3 tint = aS2.y < 0.5 ? mix(vec3(0.66, 0.8, 1.0), vec3(1.0), aS2.y * 2.0) : mix(vec3(1.0), vec3(1.0, 0.84, 0.68), aS2.y * 2.0 - 1.0);
+  vC = vec4(tint * aS2.x * tw, 0.0);
+  gl_Position = c;
+}`, `
+in vec4 vC; out vec4 o;
+void main(){ o = vC * (1.0 - smoothstep(0.1, 1.0, length(gl_PointCoord - 0.5) * 2.0)); }`],
+
+  // Clouds that sit among the galaxies and slide against the sky as the camera moves. One baked texture, read twice at two turning angles.
+  puff: [`
+in vec2 aQ; in vec4 iP, iC, iR;                                   // corner · place, size · colour, strength · angle, turns a second, seed
+out vec2 vUV; out vec4 vC, vRot;
+void main(){
+  vec4 c = uVP * vec4(iP.xyz, 1.0);
+  float r = min(iP.w * uCam.x / c.w, 0.55 * uView.y);             // capped on screen: a cloud can never fill the view and be drawn over itself
+  float a = iR.x + TAU * turns(iR.y), b = iR.z * 9.0 - a * 0.6;
+  vRot = vec4(cos(a), sin(a), cos(b), sin(b)); vUV = aQ;
+  vC = vec4(iC.rgb, iC.a * fog(c.w) * smoothstep(1.5, 6.0, c.w) * (iP.w * uCam.x / c.w > 0.55 * uView.y ? 0.55 * uView.y / (iP.w * uCam.x / c.w) : 1.0));
+  c.xy += aQ * r * 2.0 / uView * c.w; gl_Position = c;
+}`, `
+uniform sampler2D uTex;
+in vec2 vUV; in vec4 vC, vRot; out vec4 o;
+void main(){
+  float d2 = dot(vUV, vUV); if (d2 > 1.0) discard;
+  vec2 p = vec2(vUV.x * vRot.x - vUV.y * vRot.y, vUV.x * vRot.y + vUV.y * vRot.x), q = vec2(vUV.x * vRot.z - vUV.y * vRot.w, vUV.x * vRot.w + vUV.y * vRot.z);
+  float f = 1.0 - d2, a = texture(uTex, p * 0.5 + 0.5).r * texture(uTex, q * 0.5 + 0.5).g * f * f;
+  o = vec4(vC.rgb * a * vC.a * 2.2 * uX.z, 0.0);                  // as bright as the Clouds setting says
+}`],
+
+  // A galaxy's glowing body: one flat quad lying in its disc, with the spiral drawn into it. The loose stars are a separate pass.
+  disc: [GALAXY + `
+in vec2 aQ; in vec4 iD, iC;                                       // corner · galaxy, arms, twist, alarm · colour, strength
+out vec2 vUV; out float vFog; flat out vec4 vD, vC;
+void main(){
+  int g = int(iD.x); vec4 G = uGal[g];
+  vec4 c = uVP * vec4(G.xyz + (uGU[g] * aQ.x + uGV[g] * aQ.y) * G.w * 1.2, 1.0);
+  vUV = aQ * 1.2; vD = iD; vC = iC; vFog = fog(c.w); gl_Position = c;
+}`, `
+in vec2 vUV; in float vFog; flat in vec4 vD, vC; out vec4 o;
+void main(){
+  float r = length(vUV); if (r > 1.2) discard;
+  float th = atan(vUV.y, vUV.x), arm = 0.5 + 0.5 * cos(vD.y * (th - vD.z * r)); arm *= arm * arm;       // bright along each arm, which winds outward
+  float body = exp(-r * 3.4) * 0.9 + (0.12 + arm) * exp(-r * 1.9) * 0.9 * smoothstep(0.02, 0.25, r), edge = 1.0 - smoothstep(0.85, 1.2, r);
+  vec3 col = mix(vec3(1.0, 0.86, 0.66), vC.rgb, smoothstep(0.03, 0.45, r));                           // old warm light at the heart, the galaxy's own colour in the arms
+  col = mix(col, vec3(1.0, 0.3, 0.32), vD.w * (0.35 + 0.2 * sin(TAU * turns(0.8))) * exp(-r * 2.0));  // an alarmed galaxy reddens from the middle
+  o = vec4(col * body * edge * vC.a * vFog, 0.0);
+}`],
+
+  // The loose stars of every galaxy, in one call. Arm stars turn with the spiral; the rest go round at their own pace, the inner ones faster.
+  gal: [GALAXY + `
+in vec4 aG, aC; in vec2 aX;                                       // galaxy, distance out (0 to 1), angle, height · colour, size · turns a second against the spiral, seed
+out vec4 vC;
+void main(){
+  int g = int(aG.x); vec4 G = uGal[g]; vec3 U = uGU[g], V = uGV[g];
+  float th = aG.z + TAU * turns(aX.x);
+  vec4 c = uVP * vec4(G.xyz + ((U * cos(th) + V * sin(th)) * aG.y + cross(U, V) * aG.w) * G.w, 1.0);
+  gl_PointSize = clamp(aC.a * G.w * uCam.x / c.w, 1.0, 4.5 * uCam.y);
+  vC = vec4(aC.rgb * (0.7 + 0.3 * sin(TAU * turns(0.15 + aX.y * 0.6) + aX.y * 60.0)) * fog(c.w) * min(aC.a * G.w * uCam.x / c.w, 1.0), 0.0);   // a star smaller than a pixel dims instead of flickering
+  gl_Position = c;
+}`, `
+in vec4 vC; out vec4 o;
+void main(){ o = vC * (1.0 - smoothstep(0.0, 1.0, length(gl_PointCoord - 0.5) * 2.0)); }`],
+
+  // A link: a ribbon with a bright core. Light moves along it the way the data does, and a front runs its length each time new data arrives.
+  link: [NODES + `
+in vec2 aS; in vec4 iE, iEc, iEx;                                 // t along, side · from, to, bend, lane · colour, live · flow rate, seed, how bright in a crowd, length
+uniform float uSel;                                               // the star under the pointer or pinned, or -1
+out float vSide, vT, vFog; flat out vec4 vC, vX;
+void main(){
+  vec4 A = node(iE.x), B = node(iE.y);
+  vec4 c = uVP * vec4(curve(A, B, iE.z, iE.w, aS.x), 1.0), n = uVP * vec4(curve(A, B, iE.z, iE.w, aS.x + 0.02), 1.0);
+  vec2 dir = normalize((n.xy / n.w - c.xy / c.w) * uView + 1e-5);
+  c.xy += vec2(-dir.y, dir.x) * aS.y * (2.6 + 2.4 * min(iEx.z, 1.0)) * uCam.y * 2.0 / uView * c.w;   // finer threads in a crowd
+  gl_Position = c; vSide = aS.y; vT = aS.x; vC = iEc; vX = iEx; vFog = fog(c.w);
+  if (uSel > -0.5) vX.z = iE.x == uSel || iE.y == uSel ? 1.5 : vX.z * 0.4;   // point at a star and its own links stand out from the rest
+}`, `
+in float vSide, vT, vFog; flat in vec4 vC, vX; out vec4 o;
+void main(){
+  float s = abs(vSide) * 5.0, core = exp(-s * s * 1.1), glow = exp(-s * 0.9) * 0.16, a;
+  if (vC.a > 0.5){
+    float flow = 0.5 + 0.5 * sin(TAU * (vT * max(3.0, floor(vX.w * 1.4)) - turns(vX.x))), head = exp(-fract(turns(vX.x * 0.2) + vX.y - vT) * 12.0);
+    float y = uX.w * 0.8 - vT, ping = y > 0.0 && uX.w < 2.6 ? exp(-y * 8.0) : 0.0;
+    a = core * (0.14 + 0.3 * flow * flow + 0.9 * head + 1.5 * ping) + glow * (0.5 + 2.0 * head + 3.0 * ping);
+  } else a = core * 0.18 * step(0.5, fract(vT * 22.0));           // one end is dark: the link is drawn broken and still
+  o = vec4(vC.rgb * a * vX.z * vFog * smoothstep(0.0, 0.04, vT) * (1.0 - smoothstep(0.96, 1.0, vT)), 0.0);
+}`],
+
+  // A star for each node, and the soft core of each galaxy, in one capped quad apiece. Unlike everything before it, a star is not just light:
+  // its body hides what is behind it and a soft shadow dims what is round it, so it stays readable however bright the gas.
+  node: [`
+in vec2 aQ; in vec4 iP, iC, iK, iM;                               // corner · place, radius · colour, brightness · state, focus, seed, seconds since it changed · kind, alarm
+out vec2 vUV; out float vR, vFog, vExt; flat out vec4 vC, vK, vM;
+void main(){
+  vC = iC; vK = iK; vM = iM;
+  vec4 c = uVP * vec4(iP.xyz, 1.0); bool core = iM.x > 4.5;
+  vR = clamp(iP.w * uCam.x / c.w, 2.5 * uCam.y, (core ? 260.0 : ${CAP}.0) * uCam.y);   // capped on screen either way
+  float ext = core ? 1.0 : iK.x > 0.5 || iK.y > 0.01 || iK.w < 2.5 ? ${EXT}.0 : 4.2;   // a quiet star needs less room than one with rings, a reticle or a shell going out
+  vUV = aQ * ext; vFog = fog(c.w); vExt = ext;
+  c.xy += aQ * vR * ext * 2.0 / uView * c.w; gl_Position = c;
+}`, `
+in vec2 vUV; in float vR, vFog, vExt; flat in vec4 vC, vK, vM; out vec4 o;
+const float EXT = ${EXT}.0;
+void main(){
+  float d = length(vUV), px = 1.0 / vR, sd = vK.z, st = vK.x, alpha; vec3 col;
+  if (vM.x > 4.5){                                                // a galaxy's core: a soft bulge of old light, breathing; alarmed, it throbs. Light only
+    col = vC.rgb * vC.a * (exp(-d * d * 9.0) + 0.3 * exp(-d * 3.4)) * (1.0 + 0.1 * sin(TAU * turns(0.07) + sd * 9.0) + vM.y * 0.4 * sin(TAU * turns(0.8)));
+    o = vec4(col * (1.0 - smoothstep(0.8, 1.0, d)) * vFog, 0.0); return;
+  }
+  float ang = atan(vUV.y, vUV.x), disc = 1.0 - smoothstep(1.0 - px, 1.0 + px, d), t = TAU * turns(0.11);
+  float shade = (1.0 - disc) * (1.0 - smoothstep(1.0, 2.3, d));  // the soft shadow round it
+  vec3 edge = vC.rgb * 1.15 * line(d - 1.0, max(px * 0.6, 0.03));    // and a crisp outline on its limb, in its own colour
+  if (st > 2.5){                                                  // off: a cold cinder with a thin ring. Unknown: the same, its ring broken and turning
+    col = vC.rgb * (disc * (0.3 + 0.1 * sin(vUV.x * 6.0 + sd * 20.0)) + 0.55 * line(d - 1.7, px * 1.2) * (st > 3.5 ? step(0.5, fract(ang / TAU * 10.0 + turns(0.03))) : 0.6) + 0.1 * exp(-d * 1.5)) + edge * 0.55;
+    alpha = disc * 0.92 + shade * 0.35;
+  } else {
+    float z = sqrt(max(1.0 - d * d, 0.0));
+    float gran = 0.93 + 0.07 * sin(vUV.x * 8.0 + 2.0 * sin(vUV.y * 6.0 + t) + sd * 30.0) * sin(vUV.y * 9.0 - t * 1.4 + 2.0 * sin(vUV.x * 5.0 - t));
+    vec3 body = mix(vC.rgb * 0.8, vec3(1.0), st > 0.5 ? 0.04 + 0.5 * z * z * z : 0.1 + 0.75 * z * z * z) * gran * 1.1;   // white-hot at the centre, its own colour toward the limb; a troubled star keeps more of its colour
+    float flick = 1.0 + (st > 1.5 ? 0.28 : 0.08) * sin(TAU * turns(st > 1.5 ? 1.7 : 0.31) + sd * 50.0);   // a failing star flickers hard
+    float rays = 0.62 + 0.24 * sin(ang * 5.0 + t * 0.9 + sd * 10.0) + 0.14 * sin(ang * 11.0 - t * 1.6 + sd * 20.0);
+    float cor = exp(-max(d - 1.0, 0.0) * 2.4) * rays * 0.8 + 0.3 / (1.0 + d * d * 2.2);          // streamers close in, a soft halo beyond
+    float a = 0.5 + sd * 3.0, ca = cos(a), sa = sin(a); vec2 q = vec2(vUV.x * ca - vUV.y * sa, vUV.x * sa + vUV.y * ca);
+    float wd = max(0.055, px * 0.9), sp = (exp(-abs(q.y) / wd - abs(q.x) * 0.7) + exp(-abs(q.x) / wd - abs(q.y) * 0.7)) * (0.8 + 0.2 * sin(TAU * turns(0.23) + sd * 70.0));   // four spikes, breathing
+    col = body * disc + (vC.rgb * cor * (1.0 - disc) * flick + mix(vC.rgb, vec3(1.0), 0.5) * sp * 0.8) * vC.a + edge;
+    alpha = disc + shade * 0.42;
+    if (st > 0.5){                                                // needs a look, or failing: rings keep going out, faster and harder when failing. Still rings if motion is off
+      float p1 = fract(turns(st > 1.5 ? 0.6 : 0.25) + sd), p2 = fract(p1 + 0.5);
+      col += vC.rgb * (st > 1.5 ? 1.3 : 0.7) * mix(line(d - 1.2 - p1 * 3.6, 0.05 + px) * (1.0 - p1) + line(d - 1.2 - p2 * 3.6, 0.05 + px) * (1.0 - p2), line(d - 2.4, px * 1.5), uX.x);
+    }
+  }
+  if (vK.w < 2.5){ float e = vK.w / 2.5;                          // it just changed: one bright shell runs out from it
+    col += (mix(vC.rgb, vec3(1.0), 0.4) * line(d - 1.0 - e * (EXT - 1.4), 0.03 + px) * 1.6 + vC.rgb * exp(-d * 1.2) * 0.8) * (1.0 - e); }
+  if (vK.y > 0.5) col += vec3(0.494, 0.941, 1.0) * (line(d - 3.2, px * 1.3) * step(0.28, fract(ang / TAU * 4.0 + turns(0.05))) + 0.35 * line(d - 3.55, px));   // hovered or pinned: a reticle
+  float f = (1.0 - smoothstep(vExt - 1.0, vExt, d)) * vFog;
+  o = vec4(col * f, alpha * f);                                   // premultiplied: its light adds, its body and shadow take away
+}`],
+
+  // Scenery, never data. One quad apiece. Sky events come and go: 1 a black hole · 2 a supernova · 3 a pulsar · 4 jets from a galaxy's core · 5 a great comet.
+  // Two things stay, fixed far behind everything: 6 a ringed giant · 7 a supernova remnant
+  event: [GALAXY + `
+in vec2 aQ; in vec4 iP, iA, iB, iC;                               // corner · place, size · kind, age from 0 to 1, seed · a second point, or (…, which galaxy) · colour, strength
+out vec2 vUV; out float vPx, vHead; flat out vec4 vA, vC, vS1, vS2;   // vS1, vS2: whatever the far scenery needs that is the same for every pixel, worked out once here
+void main(){
+  vA = iA; vC = iC; vUV = aQ; vPx = 0.01; vHead = 1.0; vS1 = vS2 = vec4(0.0); float age = iA.y;
+  if (iA.x > 4.5 && iA.x < 5.5){                                  // the great comet: one long quad from tail to head, crossing in front of everything
+    vec3 dir = normalize(iB.xyz - iP.xyz), p = mix(iP.xyz, iB.xyz, age);
+    vec4 h = uVP * vec4(p, 1.0), q = uVP * vec4(p - dir * iP.w * (0.4 + 2.6 * sin(PI * min(age * 1.3, 1.0))), 1.0);
+    if (h.w < 0.3 || q.w < 0.3){ gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    float along = aQ.y * 0.5 + 0.5, w = 11.0 * uCam.y;
+    vec2 hs = h.xy / h.w * uView * 0.5, qs = q.xy / q.w * uView * 0.5, d = hs - qs; float len = max(length(d), 1e-3); d /= len;
+    vec2 s = mix(qs, hs, along) + d * along * w + vec2(-d.y, d.x) * aQ.x * w; float cw = mix(q.w, h.w, along);
+    gl_Position = vec4(s / (uView * 0.5) * cw, 0.0, cw); vUV = vec2(aQ.x, along); vHead = len / (len + w); return;
+  }
+  if (iA.x > 3.5 && iA.x < 4.5){                                  // jets: a tall quad standing on a galaxy's disc, turned to face the camera, growing out of the core
+    int g = int(iB.w); vec4 G = uGal[g]; vec3 N = normalize(cross(uGU[g], uGV[g])), side = normalize(cross(N, uV2W[2]) + 1e-4);
+    gl_Position = uVP * vec4(G.xyz + N * aQ.y * G.w * 2.4 * smoothstep(0.0, 0.18, age) + side * aQ.x * G.w * 0.5, 1.0); return;
+  }
+  vec4 c = uVP * vec4(iP.xyz, 1.0); float r = min(iP.w * uCam.x / c.w, (iA.x > 6.5 ? 0.46 : 0.34) * uView.y);   // the rest face the camera, capped on screen
+  vec2 box = iA.x > 5.5 && iA.x < 6.5 ? vec2(1.0, 0.47) : vec2(1.0);   // the giant's rings lie in a wide, low box: less than half the pixels a square would shade
+  vUV = aQ * box; vPx = 1.0 / r; c.xy += aQ * box * r * 2.0 / uView * c.w; gl_Position = c;
+  if (iA.x > 5.5) gl_Position.z = 0.0;                            // far scenery is never cut off by the far end of the view
+  if (iA.x > 6.5){                                                // the remnant's clocks: its breath, its outward flow, its star's flicker, the ring of light leaving the star, its glow
+    vS1 = vec4(1.0 + 0.1 * sin(TAU * turns(0.083)) + 0.035 * sin(TAU * turns(0.031) + 1.0), fract(turns(0.036)), 0.8 + 0.13 * sin(TAU * turns(0.37)) + 0.07 * sin(TAU * turns(0.83) + 2.0), fract(turns(0.11)));
+    vS2 = vec4(0.92 + 0.08 * sin(TAU * turns(0.05)), 0.0, 0.0, 0.0);
+  } else if (iA.x > 5.5){                                         // where the giant's three moons are, in planet radii across the quad: each goes round at the rate its distance sets
+    vec3 ar = vec3(2.95, 4.3, 6.42), ph = TAU * (vec3(turns(0.098 / (ar.x * sqrt(ar.x))), turns(0.098 / (ar.y * sqrt(ar.y))), turns(0.098 / (ar.z * sqrt(ar.z)))) + vec3(hash(2.0), hash(9.7), hash(17.4)));
+    vS1 = vec4(ar.x * cos(ph.x), ar.x * sin(ph.x) * 0.3, ar.y * cos(ph.y), ar.y * sin(ph.y) * 0.3); vS2 = vec4(ar.z * cos(ph.z), ar.z * sin(ph.z) * 0.3, 0.0, 0.0);
+  }
+}`, `
+uniform sampler2D uTexR;                                          // the remnant, painted once at start-up
+in vec2 vUV; in float vPx, vHead; flat in vec4 vA, vC, vS1, vS2; out vec4 o;
+float n1(float x){ float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(hash(i), hash(i + 1.0), f); }
+// How much ring there is at r planet radii from the giant's centre. w is the width of one pixel there, in the same units:
+// detail finer than a pixel is averaged away before it is drawn, so the rings never shimmer or break into moiré, at any size.
+float ringD(float r, float w){
+  float s = (n1(r * 1.7 + 3.1) - 0.5) * (1.0 - smoothstep(0.2, 0.6, w * 1.7))
+          + (n1(r * 4.3 + 7.7) - 0.5) * 0.8 * (1.0 - smoothstep(0.2, 0.6, w * 4.3))
+          + (n1(r * 11.0 + 1.3) - 0.5) * 0.6 * (1.0 - smoothstep(0.2, 0.6, w * 11.0))
+          + (n1(r * 29.0 + 5.9) - 0.5) * 0.4 * (1.0 - smoothstep(0.2, 0.6, w * 29.0));
+  float e = max(w * 1.2, 0.025), d = clamp(0.6 + s * 0.95, 0.0, 1.0) * (1.0 - 0.45 * smoothstep(3.8, 6.1, r));   // thinner toward the outside
+  d *= smoothstep(1.42, 1.42 + max(e, 0.28), r) * (1.0 - smoothstep(6.1 - max(e, 0.1), 6.1, r));                   // a hazy inner edge, a clean outer one
+  d *= 1.0 - 0.95 * (1.0 - smoothstep(0.16 - e, 0.16 + e, abs(r - 2.95)));                                      // three gaps, each swept clear by a moon
+  d *= 1.0 - 0.9 * (1.0 - smoothstep(0.08 - e, 0.08 + e, abs(r - 4.3)));
+  return d * (1.0 - 0.8 * (1.0 - smoothstep(0.045 - e, 0.045 + e, abs(r - 5.3))));
+}
+void main(){
+  float k = vA.x, age = vA.y, sd = vA.z, d = length(vUV), ang = atan(vUV.y, vUV.x), alpha = 0.0; vec3 col = vec3(0.0);
+  //@scenery
+  if (k > 6.5){                                                   // the remnant: it swells and settles, its gas streams outward, and the star at its heart flickers and sends out rings of light
+    if (d > 0.97){ o = vec4(0.0); return; }                       // the corners of its quad are empty
+    float br = vS1.x, f1 = vS1.y, f2 = fract(f1 + 0.5), fl = vS1.z, pe = vS1.w;                       // br, the swelling: a breath every twelve seconds or so
+    vec2 u = vUV / br * 1.28, u2 = vec2(u.x * 0.8 - u.y * 0.6, u.x * 0.6 + u.y * 0.8);
+    // the painted shell is read twice, the second read turned; each grows as it fades and the other takes over, so the gas flows outward for ever without starting again
+    vec3 shell = texture(uTexR, u * (1.0 - 0.14 * f1) * 0.5 + 0.5).rgb * (1.0 - abs(2.0 * f1 - 1.0)) + texture(uTexR, u2 * (1.0 - 0.14 * f2) * 0.5 + 0.5).rgb * (1.0 - abs(2.0 * f2 - 1.0));
+    shell *= 0.72 + 0.75 * max(shell.r, shell.b);                 // mixing two reads flattens them a little: this gives the brightest gas its edge back
+    col = shell * vS2.x * uX.z * 1.3;
+    if (d < 0.6){                                                 // the star and its light reach no farther than the hollow, so only there are they worked out
+      vec2 q = vec2(vUV.x * 0.82 - vUV.y * 0.57, vUV.x * 0.57 + vUV.y * 0.82); float wd = max(0.003, vPx * 0.9), ed = (d - 0.05 - pe * 0.42) / 0.03, echo = exp(-ed * ed) * (1.0 - pe) * (1.0 - pe);   // echo: a ring of light leaving the star every nine seconds, fading as it crosses the hollow
+      col += (vec3(0.55, 0.66, 1.0) * echo * 0.2 + vec3(0.85, 0.92, 1.0) * fl * (exp(-d * d * 900.0) * 3.0 + exp(-d * d * 90.0) * 0.55 + exp(-abs(q.y) / wd - abs(q.x) * (10.0 - 3.0 * fl)) + exp(-abs(q.x) / wd - abs(q.y) * (10.0 - 3.0 * fl)))) * (1.0 - smoothstep(0.4, 0.6, d));
+    }
+    o = vec4(col * vC.a * (1.0 - smoothstep(0.87, 0.97, d)), 0.0); return;
+  }
+  if (k > 5.5){                                                   // the ringed giant, after J1407b: a banded world that turns, inside a ring system many times its width that turns with it
+    const float rp = 0.15, tilt = 0.3, ny = 0.954;                // the ball's radius in this quad; how open the rings lie to us. Their pole is N
+    const vec3 N = vec3(0.0, 0.954, 0.3); vec3 L = normalize(vec3(-0.62, 0.38, 0.68));
+    vec2 q = vec2(vUV.x * 0.94 + vUV.y * 0.34, vUV.y * 0.94 - vUV.x * 0.34) / rp;                     // in planet radii, the long axis of the rings along x
+    float dp = length(q), rr = length(vec2(q.x, q.y / tilt)), px = vPx / rp;
+    if (rr > 6.75){ o = vec4(0.0); return; }                      // outside the rings and the outermost moon: nothing here
+    float w = px * length(vec2(q.x, q.y / (tilt * tilt))) / max(rr, 0.01), dens = ringD(rr, w);       // w: one pixel, measured across the rings at this point
+    // the rings turn, the inner lanes faster than the outer ones, as real ones do. Each lane carries clumps round with it
+    float lane = floor(rr * 4.0), lr0 = (lane + 0.5) * 0.25, a = fract(atan(q.y / tilt, q.x) / TAU + turns(0.098 / (lr0 * sqrt(lr0))) + hash(lane * 5.3)) * 26.0, ai = floor(a), af = fract(a); af = af * af * (3.0 - 2.0 * af);
+    float clump = mix(1.0, 0.8 + 0.4 * mix(hash(lane * 17.0 + ai), hash(lane * 17.0 + mod(ai + 1.0, 26.0)), af), 1.0 - smoothstep(0.04, 0.2, w));
+    vec3 P = vec3(q.x, q.y, -q.y * ny / tilt); float along = dot(P, -L), off = length(P + L * along);  // this point of the ring plane in space, and whether the ball's shadow falls on it
+    float ringLit = 1.0 - 0.94 * (1.0 - smoothstep(0.9, 1.06, off)) * step(0.0, along), ringA = dens * 0.9;
+    vec3 ring = mix(vec3(0.56, 0.66, 0.95), vec3(0.95, 0.9, 1.0), n1(rr * 0.9 + 2.0)) * dens * clump * ringLit * 0.66;
+    if (dp < 1.0){                                                // on the ball
+      vec3 n = vec3(q, sqrt(1.0 - dp * dp)); float lat = dot(n, N), lon = atan(n.x, n.z * ny - n.y * tilt), ndl = dot(n, L);
+      float jf = lat * 6.0 + 6.0, calm = sin(PI * fract(jf)), lr = lon + TAU * turns(0.016 + 0.012 * hash(floor(jf) * 3.1));    // each belt of cloud goes round at its own rate
+      float wob = (0.035 * sin(lr * 3.0 + lat * 11.0) + 0.018 * sin(lr * 7.0 - lat * 23.0)) * calm, b = n1((lat + wob) * 8.0 + 4.0), fine = 0.5 + 0.5 * sin((lat + wob * 1.7) * 44.0 + 1.4 * calm * sin(lr * 5.0));
+      float sl = lon + TAU * turns(0.016 + 0.012 * hash(12.4)), spot = exp(-((1.0 - cos(sl - 1.0)) * 26.0 + (lat - 0.36) * (lat - 0.36) * 240.0));   // one great storm, carried round
+      vec3 base = mix(vec3(0.24, 0.31, 0.6), vec3(0.8, 0.84, 0.99), b); base = mix(base, vec3(0.5, 0.78, 0.94), 0.3 * fine * (1.0 - b)); base = mix(base, vec3(0.97, 0.95, 1.0), spot * 0.9) * (1.0 - 0.4 * smoothstep(0.62, 0.98, abs(lat)));
+      float s = -lat / dot(L, N), sh = s > 0.0 ? ringD(length(n + L * s), 0.06 + px) * 0.85 : 0.0;                              // the rings' shadow lies across the hemisphere turned away from the light's side of them
+      vec3 ball = base * (0.025 + 0.975 * smoothstep(-0.06, 0.34, ndl) * (0.5 + 0.5 * n.z) * (1.0 - sh)) * 1.2 + vec3(0.35, 0.5, 1.0) * pow(1.0 - n.z, 2.5) * 0.4 * (0.1 + smoothstep(-0.2, 0.5, ndl));
+      float e = 1.0 - smoothstep(1.0 - 1.5 * px, 1.0, dp);
+      if (q.y < 0.0){ col = ball * e * (1.0 - ringA) + ring; alpha = e + ringA * (1.0 - e); }         // the near half of the rings crosses in front of the ball
+      else { col = ball * e + ring * (1.0 - e); alpha = e + ringA * (1.0 - e); }                     // the far half passes behind it
+    } else { col = ring + vec3(0.35, 0.5, 1.0) * exp(-(dp - 1.0) * 24.0) * 0.14 * smoothstep(-0.4, 0.5, dot(q / dp, L.xy)); alpha = ringA; }   // and a little air glowing beyond the lit limb
+    for (int i = 0; i < 3; i++){                                  // three moons, two of them in the gaps they keep clear
+      vec2 mp = i == 0 ? vS1.xy : i == 1 ? vS1.zw : vS2.xy; float mr = max(i == 2 ? 0.1 : 0.07, 1.5 * px), md = length(q - mp) / mr;
+      if (md < 1.0 && !(mp.y > 0.0 && dp < 1.0)){                 // not when it is behind the ball
+        vec3 M = vec3(mp, -mp.y * ny / tilt); float ma = dot(M, -L), ml = ma > 0.0 && length(M + L * ma) < 1.0 ? 0.06 : 1.0, mk = 1.0 - smoothstep(0.6, 1.0, md);
+        col = mix(col, vec3(0.84, 0.87, 0.96) * ml * (0.1 + 0.9 * max(dot(vec3((q - mp) / mr, sqrt(1.0 - md * md)), L), 0.0)), mk); alpha = mix(alpha, 1.0, mk);
+      }
+    }
+    o = vec4(col * vC.rgb * vC.a, alpha); return;
+  }
+  //@end-scenery
+  if (k < 1.5){                                                   // a black hole: a shadow that blocks what is behind it, a bright disc tipped toward us, light bent round the shadow
+    float e = smoothstep(0.0, 0.12, age) * (1.0 - smoothstep(0.88, 0.99, age)), rh = 0.2; vec2 p = vUV / max(e, 0.04); float dd = length(p);
+    if (dd < 1.0){
+      float a0 = sd * 6.0, ca = cos(a0), sa = sin(a0); vec2 q = vec2(p.x * ca - p.y * sa, p.x * sa + p.y * ca);
+      float y2 = q.y / (0.24 + 0.22 * fract(sd * 7.7)), rho = length(vec2(q.x, y2)), an = atan(y2, q.x), dop = 1.0 + 0.7 * cos(an - 0.5);   // dop: the side turning toward us is brighter
+      float swirl = (0.6 + 0.4 * sin(an * 3.0 - TAU * turns(0.4) + rho * 24.0)) * (0.75 + 0.25 * sin(an * 7.0 - TAU * turns(0.7) - rho * 40.0));
+      float disc = smoothstep(rh * 1.2, rh * 1.7, rho) * (1.0 - smoothstep(rh * 2.6, rh * 4.6, rho)) * swirl * dop * pow(rh * 1.5 / max(rho, 0.01), 1.4) * (q.y > 0.0 && dd < rh ? 0.0 : 1.0);   // the far side passes behind the shadow
+      col = vC.rgb * disc * 1.5 + mix(vC.rgb, vec3(1.0), 0.6) * (line(dd - rh * 1.3, 0.012 + vPx) * (0.4 + 0.24 * dop) + line(dd - rh * 1.04, 0.006 + vPx) * 0.9) + vC.rgb * 0.06 / (1.0 + dd * dd * 30.0);
+      col *= e * (1.0 - smoothstep(0.8, 1.0, dd)); alpha = e * (1.0 - smoothstep(rh - 0.012, rh + 0.004, dd));
+    }
+    col += vec3(0.85, 0.92, 1.0) * exp(-d * d * 60.0) * smoothstep(0.9, 0.975, age) * (1.0 - smoothstep(0.975, 1.0, age)) * 4.0;      // it goes out with a flash
+  } else if (k < 2.5){                                            // a supernova: a flash with spikes, a ragged shell running outward, a glow left behind
+    float lum = smoothstep(0.0, 0.05, age) * exp(-max(age - 0.05, 0.0) * 6.0), a0 = sd * 5.0, ca = cos(a0), sa = sin(a0), wd = max(0.004, vPx * 0.9);
+    vec2 q = vec2(vUV.x * ca - vUV.y * sa, vUV.x * sa + vUV.y * ca);
+    float core = exp(-d * d * 300.0) * 3.0 + exp(-d * d * 40.0) * 0.9 + 0.15 / (1.0 + d * d * 60.0), sp = exp(-abs(q.y) / wd - abs(q.x) * 4.0) + exp(-abs(q.x) / wd - abs(q.y) * 4.0);
+    float shell = line(d - 0.08 - 0.85 * sqrt(age), 0.01 + 0.04 * age) * (1.0 - age) * (0.65 + 0.35 * sin(ang * 9.0 + sd * 30.0) * sin(ang * 4.0 - sd * 11.0));
+    col = (vec3(1.0) * core * 1.6 + mix(vC.rgb, vec3(1.0), 0.5) * sp * 1.5) * lum + vC.rgb * shell * 1.3 + vec3(0.55, 0.4, 1.0) * exp(-d * d * 10.0) * 0.3 * smoothstep(0.15, 0.4, age) * (1.0 - smoothstep(0.6, 1.0, age));
+    col *= 1.0 - smoothstep(0.92, 1.0, d);
+  } else if (k < 3.5){                                            // a pulsar: two beams on a tipped-over circle, so they swing toward us and away, and a ring for every turn
+    float e = smoothstep(0.0, 0.08, age) * (1.0 - smoothstep(0.9, 1.0, age)), spin = TAU * turns(0.7) + sd * 6.0, ph = fract(turns(1.4) + sd);
+    vec2 b = vec2(cos(spin), sin(spin) * 0.38); float bl = length(b); b /= bl; float al = dot(vUV, b), ac = dot(vUV, vec2(-b.y, b.x));
+    col = (vC.rgb * (exp(-ac * ac / (0.0004 + 0.02 * al * al)) * exp(-abs(al) * 2.6 / bl) * bl * 1.4 + line(d - ph * 0.8, 0.008 + vPx) * (1.0 - ph) * 0.5)
+      + vec3(1.0) * (exp(-d * d * 500.0) * 2.5 + exp(-d * d * 50.0) * 0.5)) * e * (1.0 - smoothstep(0.9, 1.0, d));
+  } else if (k < 4.5){                                            // jets: two cones of light out of a galaxy's core, knots racing along them
+    float a = abs(vUV.y), wdt = 0.07 + 0.28 * a, knots = 0.5 + 0.5 * sin(TAU * (a * 5.0 - turns(0.9)) + sd * 9.0);
+    col = mix(vec3(0.75, 0.88, 1.0), vC.rgb, a) * exp(-vUV.x * vUV.x / (wdt * wdt)) * (0.35 + 0.65 * knots * knots) * (1.0 - smoothstep(0.5, 1.0, a)) * smoothstep(0.0, 0.04, a) * (1.0 - smoothstep(0.82, 1.0, age)) * 1.1;
+  } else {                                                        // the great comet: a white-hot head, a long crackling tail
+    float x = 1.0 - vUV.x * vUV.x, y = vUV.y / vHead, e = smoothstep(0.0, 0.08, age) * (1.0 - smoothstep(0.9, 1.0, age));
+    float body = x * x * (y < 1.0 ? y * sqrt(y) : 1.0 - smoothstep(0.0, 1.0, (vUV.y - vHead) / (1.0 - vHead)));
+    col = (mix(vC.rgb, vec3(1.0), smoothstep(0.7, 1.0, y)) * body * (0.8 + 0.2 * sin(y * 60.0 - TAU * turns(3.0) + sd * 20.0)) * 2.2 + vec3(1.0) * pow(x, 8.0) * smoothstep(0.5, 1.0, y) * min(y, 1.0)) * e;
+  }
+  o = vec4(col * vC.a, alpha);                                    // premultiplied: light adds, and only the black hole's shadow takes any away
+}`],
+
+  // Every small moving thing, in one call. By kind: 0 a comet on a link · 1 a moon going round its star · 3 a falling star · 4 one of a meteor shower
+  sprite: [NODES + `
+uniform vec4 uEv; uniform vec3 uEvP;                              // the meteor shower: seconds since it began (below zero: there is none), how long it lasts, seed · where it comes from
+uniform float uSel;                                               // the star under the pointer or pinned, or -1
+in vec2 aQ; in vec4 iA, iB, iCol, iD;
+out vec2 vUV; flat out vec4 vC; flat out float vKind, vHead;
+void tail(vec4 h, vec4 q, float w, float along){                  // one quad stretched from tail to head: both in a single sprite
+  if (h.w < 0.3 || q.w < 0.3){ gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }   // behind the camera: not drawn at all
+  vec2 hs = h.xy / h.w * uView * 0.5, qs = q.xy / q.w * uView * 0.5, dir = hs - qs; float len = max(length(dir), 1e-3); dir /= len;
+  vec2 p = mix(qs, hs, along) + dir * along * w + vec2(-dir.y, dir.x) * aQ.x * w; float cw = mix(q.w, h.w, along);
+  gl_Position = vec4(p / (uView * 0.5) * cw, 0.0, cw); vUV = vec2(aQ.x, along); vHead = len / (len + w);
+}
+void main(){
+  vKind = iB.w; vC = iCol; vUV = aQ; vHead = 1.0; float along = aQ.y * 0.5 + 0.5;
+  if (iB.w < 0.5){                                                // iA from, to, bend, lane · iB phase, crossings a second, half-width · iD spiral radius, twists, tail
+    float t = fract(iB.x + turns(iB.y)); vec4 A = node(iA.x), B = node(iA.y);
+    if (uSel > -0.5) vC.a *= iA.x == uSel || iA.y == uSel ? 1.4 : 0.2;   // with a star picked out, only its own traffic stays bright
+    vec3 ph = curve(A, B, iA.z, iA.w, t), pq = curve(A, B, iA.z, iA.w, t - iD.z), tg = normalize(ph - pq + 1e-5), sd = normalize(cross(tg, vec3(0.0, 1.0, 0.0)) + 1e-4);
+    float sp = TAU * (t * iD.y + iB.x * 7.0); vec3 off = (sd * cos(sp) + cross(sd, tg) * sin(sp)) * iD.x * sin(PI * t);   // it spirals round the path, pinched at both ends
+    vec4 h = uVP * vec4(ph + off, 1.0); tail(h, uVP * vec4(pq + off, 1.0), iB.z * uCam.y, along);
+    vC.a *= smoothstep(0.0, 0.1, t) * (1.0 - smoothstep(0.88, 1.0, t)) * fog(h.w); if (vC.a < 0.004) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return;   // too faint to see: not drawn at all
+  }
+  if (iB.w > 3.5){                                                // one of a shower: all leave the same point, each at its own moment and its own angle
+    float f = (uEv.x - iB.x * uEv.y) / 0.9, h1 = hash(iA.y * 91.0 + uEv.z), h2 = hash(iA.y * 17.0 + uEv.z * 3.0);
+    if (uEv.x < 0.0 || f < 0.0 || f > 1.0){ gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    vec3 dir = normalize(vec3(cos(h1 * TAU) * 0.9, -0.55 - 0.8 * h2, sin(h1 * TAU) * 0.9)), p = uEvP + dir * (1.0 + 13.0 * f);
+    tail(uVP * vec4(p, 1.0), uVP * vec4(p - dir * (0.6 + 2.6 * f * (1.0 - f)), 1.0), iB.z * uCam.y, along);
+    vC.a *= sin(PI * f); vKind = 0.0; return;
+  }
+  if (iB.w > 2.5){                                                // a falling star. iA.x: seconds between falls, iA.y: seed. Where and which way is drawn afresh each time
+    float ph = turns(1.0 / iA.x) + iB.x, cyc = floor(ph), f = fract(ph) * iA.x / 0.9;
+    if (f > 1.0 || uX.x > 0.5){ gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    float h1 = hash(cyc * 7.13 + iA.y * 91.0), h2 = hash(cyc * 3.71 + iA.y * 17.0 + 5.0), h3 = hash(cyc * 1.37 + iA.y * 53.0 + 9.0), y = h1 * 1.5 - 0.5, rr = sqrt(max(1.0 - y * y, 0.0));
+    vec3 s = vec3(rr * cos(h2 * TAU), y, rr * sin(h2 * TAU)) * 44.0, dir = normalize(normalize(cross(s, vec3(0.3, 1.0, 0.2))) * (h3 < 0.5 ? 1.0 : -1.0) + vec3(0.0, -0.4 - h3, 0.0));
+    vec3 p = s + dir * 18.0 * f; tail(uVP * vec4(p, 1.0), uVP * vec4(p - dir * (1.0 + 5.0 * f * (1.0 - f)), 1.0), iB.z * uCam.y, along);
+    vC.a *= sin(PI * f); vKind = 0.0; return;
+  }
+  vec4 n = node(iA.x); float a = TAU * (iB.x + turns(iB.y)), ap = TAU * iA.z, k = 0.3 + 0.9 * fract(iA.z * 3.71);   // a moon: iA its star, orbit in star radii, seed · iB phase, turns a second, size
+  vec3 e1 = vec3(cos(ap), 0.0, sin(ap)), e2 = vec3(-sin(ap) * cos(k), sin(k), cos(ap) * cos(k));
+  vec4 c = uVP * vec4(n.xyz + (e1 * cos(a) + e2 * sin(a)) * iA.y * n.w, 1.0);
+  float r = clamp(iB.z * uCam.x / c.w, 1.3 * uCam.y, 4.5 * uCam.y), vis = fog(c.w) * smoothstep(3.0, 6.0, n.w * uCam.x / c.w / uCam.y);   // moons appear only once their star is big enough to see them round
+  if (vis < 0.004){ gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }   // and until then they cost nothing: in a big estate that is most of them
+  c.xy += aQ * r * 2.0 / uView * c.w; gl_Position = c; vC.a *= vis;
+}`, `
+in vec2 vUV; flat in vec4 vC; flat in float vKind, vHead; out vec4 o;
+void main(){
+  float a;
+  if (vKind < 0.5){ float x = 1.0 - vUV.x * vUV.x, y = vUV.y / vHead; a = x * x * (y < 1.0 ? y * y : 1.0 - smoothstep(0.0, 1.0, (vUV.y - vHead) / (1.0 - vHead))); }
+  else a = 1.0 - smoothstep(0.35, 1.0, length(vUV));
+  o = vec4(vC.rgb * a * vC.a, 0.0);
+}`]
+};
+
+// The far scenery gets a program of its own, cut out of the event shader: each of the two then carries only the cases it can meet.
+{
+  const f = SRC.event[1], a = f.indexOf('//@scenery'), b = f.indexOf('//@end-scenery');
+  SRC.scene = [SRC.event[0], f.slice(0, b) + 'o = vec4(0.0);\n}'];
+  SRC.event = [SRC.event[0], f.slice(0, a) + f.slice(b)];
+}
+
+/* ── state the frame loop touches: typed arrays only, made once */
+const TH = 0, PH = 1, RAD = 2, GRAD = 3, VTH = 4, VPH = 5, IDLE = 6, CLOCK = 7, LAST = 8, ZOOMED = 9, PULSE = 10, LOAD = 11, CX = 12, CY = 13, CZ = 14, FADE = 15, ALARM = 16, AGOAL = 17, HOMER = 18, SWAY = 19;
+const TH0 = 0.6, PH0 = 0.82;                   // the opening view: the far scenery is placed to sit in its background
+const S = new Float64Array(24);                // camera, clock and the like (a typed array, so a store never boxes a number)
+S[TH] = TH0; S[PH] = PH0; S[RAD] = S[GRAD] = S[HOMER] = 30; S[PULSE] = -100;
+const VIEW = new Float32Array(16), PROJ = new Float32Array(16), VP = new Float32Array(16), V2W = new Float32Array(9);
+const PN = new Float32Array(MAXN * 4);         // each star now: position, radius. Handed to the shaders as a texture, one texel a star
+const NST = new Float32Array(MAXN * 8);        // what stays the same from frame to frame for each star: colour, brightness, state, seed
+const ORDER = new Uint16Array(MAXN);           // the stars from farthest to nearest: a star hides what is behind it, so they are drawn in that order
+const PO = new Float32Array(MAXN * 4), NB = new Float32Array(MAXN).fill(1);   // where it was when the layout last changed, and how far it has glided from there
+const NL = new Float32Array(MAXN * 4);         // its place in its galaxy: which galaxy, distance out, angle, height
+const FL = new Float64Array(MAXN).fill(-100);  // when it last changed state, by the scene clock
+const FOC = new Float32Array(MAXN), SCR = new Float32Array(MAXN * 4), GSCR = new Float32Array(MAXG * 4);
+const INST = new Float32Array((MAXN + MAXG) * 16);   // one row a star, then one a galaxy core
+const GAL = new Float32Array(MAXG * 4), GALT = new Float32Array(MAXG * 4);   // each galaxy now and where it is headed: centre, radius. Read as uGal
+const GB = new Float32Array(MAXG * 6), GU = new Float32Array(MAXG * 3), GV = new Float32Array(MAXG * 3), GW = new Float32Array(MAXG * 2);   // its disc at rest; its disc now (uGU, uGV); turn rate and phase
+const UT = new Float32Array(2), UCAM = new Float32Array(4), UVIEW = new Float32Array(2), UX = new Float32Array(4), USKY = new Float32Array(4), UROT = new Float32Array(4);
+const PAL = [hex('#b03cff'), hex('#1f8fff'), hex('#ff8fb8')], UPA = new Float32Array(PAL[0]), UPB = new Float32Array(PAL[1]), UPC = new Float32Array(PAL[2]);   // the sky's gases, and where they meet
+const ML = MAXN + MAXG;                        // labels: one a star, then one a galaxy
+const LORD = new Uint16Array(MAXN), LMUST = new Uint8Array(MAXN), LV = new Uint8Array(ML), LX = new Int32Array(ML), LY = new Int32Array(ML), LW = new Float32Array(ML), GSHOW = new Uint8Array(MAXG);
+const BOX = new Float32Array((MAXN + ML + 2) * 4), OWN = new Int16Array(MAXN + ML + 2);
+const LS = [], LSI = [], TX = [], TY = [];     // label styles; every translate string this window size can need
+let W = 1, H = 1, DPR = 1, nN = 0, nG = 0, nL = 0, nS = 0, nP = 0, nGP = 0, hover = -1, pin = -1, focusG = -1, drag = 0, extent = 12;
+let gl = null, g2 = null, raf = 0, pend = 0, running = false, scale = 1, autoScale = 1, tqx = null, tq = null, tqOn = false, shrinking = false, bakeAt = 0, SKY = 0, FBO = null, FBA = null, FBB = null, BW = 0, BH = 0;
+const canvas = document.getElementById('c'), motionOff = matchMedia('(prefers-reduced-motion: reduce)');
+let still = false, speed = 1, D = DETAIL.high;  // set from the viewer's choices before the first frame: motion off, how fast the scene's clock runs, the detail level in force
+// Sky events. Up to MAXEV at once that have a body (black hole, supernova, pulsar, jets, comet); the meteor shower and the storm are just a few numbers handed to shaders.
+const EV = new Float32Array(MAXEV * 16), EVU = new Float32Array(MAXEV * 16), EVT = new Float64Array(MAXEV * 2), EVK = new Uint8Array(MAXEV);   // each one's row · the rows in play, packed for upload · when it began, how long it lasts · its kind (0: free)
+const EVS = new Float64Array([-1e9, 1, -1e9, 1]), UEV = new Float32Array([-1, 1, 0, 0]), UEVP = new Float32Array(3), USTORM = new Float32Array(4);   // shower and storm: began, lasts · what the shaders get
+let nEV = 0;
+
+/* ── matrices, by hand */
+function persp(o, fovy, asp, n, f){
+  const t = 1 / Math.tan(fovy / 2); o.fill(0);
+  o[0] = t / asp; o[5] = t; o[10] = (f + n) / (n - f); o[11] = -1; o[14] = 2 * f * n / (n - f);
+}
+function look(o, ex, ey, ez, tx, ty, tz){      // up is +y
+  let zx = ex - tx, zy = ey - ty, zz = ez - tz, l = 1 / Math.sqrt(zx * zx + zy * zy + zz * zz); zx *= l; zy *= l; zz *= l;   // sqrt, not hypot: hypot with three arguments can allocate
+  let xx = zz, xz = -zx; l = 1 / Math.sqrt(xx * xx + xz * xz); xx *= l; xz *= l;
+  const yx = zy * xz, yy = zz * xx - zx * xz, yz = -zy * xx;
+  o[0] = xx; o[1] = yx; o[2] = zx; o[3] = 0; o[4] = 0; o[5] = yy; o[6] = zy; o[7] = 0; o[8] = xz; o[9] = yz; o[10] = zz; o[11] = 0;
+  o[12] = -(xx * ex + xz * ez); o[13] = -(yx * ex + yy * ey + yz * ez); o[14] = -(zx * ex + zy * ey + zz * ez); o[15] = 1;
+}
+function mul(o, a, b){
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+}
+
+/* ── GL setup: programs, buffers, one vertex array a draw call, and the two textures the sky is painted into */
+const PR = {}, VA = {}, BUF = {}, TEX = {};
+const LINKB = new Float32Array(MAXL * 12), SPR = new Float32Array(MAXS * 16), GPB = new Float32Array(GPARTS * 10), DISC = new Float32Array(MAXG * 8), PUFF = new Float32Array(MAXP * 12), SCN = new Float32Array(32);
+let nSC = 0;                                   // how many pieces of far scenery there are: two, or none
+let nS0 = 0, moonsOn = false;                  // moons are packed last among the sprites, from nS0 on; they are drawn only while some star is close enough to show them
+const FACE = new Float32Array([1, 0, 0, 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0, 1, 0, 0, 0, 0, -1, 0, 0, 1, 1, 0, 0, 0, -1, 0, 0, 0, -1, -1, 0, 0, 0, -1, 0]);   // each cube face: forward, right, up
+function program(vs, fs, head){
+  const p = gl.createProgram();
+  for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]){
+    const s = gl.createShader(type); gl.shaderSource(s, head + src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    gl.attachShader(p, s);
+  }
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {};
+  for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++){ const name = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, ''); u[name] = gl.getUniformLocation(p, name); }
+  return { p, u };
+}
+function vertexArray(prog, specs){             // specs: [buffer, floats per element, divisor, [[name, size, offset], …]]
+  const v = gl.createVertexArray(); gl.bindVertexArray(v);
+  for (const [buf, stride, div, attrs] of specs){
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    for (const [name, size, off] of attrs){
+      const l = gl.getAttribLocation(prog.p, name); if (l < 0) continue;
+      gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, size, gl.FLOAT, false, stride * 4, off * 4); gl.vertexAttribDivisor(l, div);
+    }
+  }
+  gl.bindVertexArray(null); return v;
+}
+function buffer(data, dynamic){ const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, dynamic ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW); return b; }
+function rng(seed){ let a = seed >>> 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hashStr(s){ let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; }   // a name always lands in the same place
+
+function initGL(){
+  gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'low-power' });
+  if (!gl) return false;
+  tqx = CONFIG.gpuBudgetMs ? gl.getExtension('EXT_disjoint_timer_query_webgl2') : null; if (tqx) tq = gl.createQuery();
+  PR.bake = program(BAKE[0], BAKE[1], '');
+  for (const k in SRC) PR[k] = program(SRC[k][0], SRC[k][1], HEAD);
+  const r = rng(1107), stars = new Float32Array(STARS * 6);
+  for (let i = 0; i < STARS; i++){             // far stars: scattered at real distances all round, a few of them bright
+    const y = r() * 2 - 1, q = Math.sqrt(1 - y * y), a = r() * TAU, dist = 34 + 70 * Math.pow(r(), 0.7), m = r();
+    stars.set([q * Math.cos(a) * dist, y * dist, q * Math.sin(a) * dist, 1 + 2 * Math.pow(m, 6), 0.3 + 0.7 * Math.pow(m, 2.5), r()], i * 6);
+  }
+  const quad = buffer(new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1])), strip = new Float32Array((SEG + 1) * 4);
+  for (let i = 0; i <= SEG; i++) strip.set([i / SEG, -1, i / SEG, 1], i * 4);
+  BUF.inst = buffer(INST, true); BUF.link = buffer(LINKB, true); BUF.spr = buffer(SPR, true); BUF.gp = buffer(GPB, true); BUF.disc = buffer(DISC, true); BUF.puff = buffer(PUFF, true); BUF.ev = buffer(EVU, true); BUF.scn = buffer(SCN, true);
+  VA.none = gl.createVertexArray();
+  VA.star = vertexArray(PR.star, [[buffer(stars), 6, 0, [['aS', 4, 0], ['aS2', 2, 4]]]]);
+  VA.puff = vertexArray(PR.puff, [[quad, 2, 0, [['aQ', 2, 0]]], [BUF.puff, 12, 1, [['iP', 4, 0], ['iC', 4, 4], ['iR', 4, 8]]]]);
+  VA.disc = vertexArray(PR.disc, [[quad, 2, 0, [['aQ', 2, 0]]], [BUF.disc, 8, 1, [['iD', 4, 0], ['iC', 4, 4]]]]);
+  VA.gal = vertexArray(PR.gal, [[BUF.gp, 10, 0, [['aG', 4, 0], ['aC', 4, 4], ['aX', 2, 8]]]]);
+  VA.link = vertexArray(PR.link, [[buffer(strip), 2, 0, [['aS', 2, 0]]], [BUF.link, 12, 1, [['iE', 4, 0], ['iEc', 4, 4], ['iEx', 4, 8]]]]);
+  VA.node = vertexArray(PR.node, [[quad, 2, 0, [['aQ', 2, 0]]], [BUF.inst, 16, 1, [['iP', 4, 0], ['iC', 4, 4], ['iK', 4, 8], ['iM', 4, 12]]]]);
+  VA.spr = vertexArray(PR.sprite, [[quad, 2, 0, [['aQ', 2, 0]]], [BUF.spr, 16, 1, [['iA', 4, 0], ['iB', 4, 4], ['iCol', 4, 8], ['iD', 4, 12]]]]);
+  VA.event = vertexArray(PR.event, [[quad, 2, 0, [['aQ', 2, 0]]], [BUF.ev, 16, 1, [['iP', 4, 0], ['iA', 4, 4], ['iB', 4, 8], ['iC', 4, 12]]]]);
+  VA.scn = vertexArray(PR.scene, [[quad, 2, 0, [['aQ', 2, 0]]], [BUF.scn, 16, 1, [['iP', 4, 0], ['iA', 4, 4], ['iB', 4, 8], ['iC', 4, 12]]]]);
+  // the sky's cube map and the cloud sprite: empty now, painted over the first seven frames
+  const smooth = t => { for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(t, k, v); };
+  TEX.sky = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_CUBE_MAP, TEX.sky); smooth(gl.TEXTURE_CUBE_MAP);
+  sizeSky();
+  TEX.puff = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, TEX.puff); smooth(gl.TEXTURE_2D);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 512, 512, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  TEX.rem = gl.createTexture(); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, TEX.rem); smooth(gl.TEXTURE_2D);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 512, 512, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  TEX.nodes = gl.createTexture(); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, TEX.nodes);          // the stars' positions: one row of floats, read exactly, never blended
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAXN, 1, 0, gl.RGBA, gl.FLOAT, PN);
+  FBO = gl.createFramebuffer();
+  TEX.bga = gl.createTexture(); gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, TEX.bga); smooth(gl.TEXTURE_2D);   // the two small off-screen pictures: the sky,
+  TEX.bgb = gl.createTexture(); gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, TEX.bgb); smooth(gl.TEXTURE_2D);   // and the clouds among the galaxies
+  FBA = gl.createFramebuffer(); FBB = gl.createFramebuffer(); BW = BH = 0;
+  gl.useProgram(PR.sky.p); gl.uniform1i(PR.sky.u.uTex, 0); gl.useProgram(PR.puff.p); gl.uniform1i(PR.puff.u.uTex, 1); gl.useProgram(PR.scene.p); gl.uniform1i(PR.scene.u.uTexR, 2);
+  gl.useProgram(PR.link.p); gl.uniform1i(PR.link.u.uNodes, 3); gl.useProgram(PR.sprite.p); gl.uniform1i(PR.sprite.u.uNodes, 3);
+  gl.blendFunc(gl.ONE, gl.ONE);                // everything is light, and light adds: no depth, no sorting
+  return true;
+}
+function sizeBack(){                           // the off-screen pictures follow the canvas, at the fraction the detail level sets
+  const w = Math.max(2, Math.round(canvas.width * D.bg)), h = Math.max(2, Math.round(canvas.height * D.bg));
+  if (!gl || (w === BW && h === BH)) return;
+  BW = w; BH = h;
+  for (const [unit, tex, fb] of [[gl.TEXTURE4, TEX.bga, FBA], [gl.TEXTURE5, TEX.bgb, FBB]]){
+    gl.activeTexture(unit); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+function sizeSky(){                            // how fine the painted sky is goes with the detail level and the screen; a change means painting it again
+  const wide = innerWidth * Math.min(devicePixelRatio || 1, 2), want = Math.min(gl.getParameter(gl.MAX_CUBE_MAP_TEXTURE_SIZE), PREF.detail === 'high' ? (wide > 1700 ? 1024 : 768) : PREF.detail === 'auto' && wide > 1500 ? 768 : 512);
+  if (want === SKY) return;
+  SKY = want; gl.activeTexture(gl.TEXTURE0);
+  for (let f = 0; f < 6; f++) gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, 0, gl.RGBA8, SKY, SKY, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  bakeAt = 0;
+}
+function bakeStep(){                           // paint one cube face of the nebula; then the cloud sprite; last of all the supernova remnant
+  const p = PR.bake, n = bakeAt++, size = n < 6 ? SKY : 512;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, FBO); gl.disable(gl.BLEND); gl.useProgram(p.p); gl.bindVertexArray(VA.none);
+  if (n < 6){ gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + n, TEX.sky, 0); gl.uniform3fv(p.u.uF, FACE, n * 9, 3); gl.uniform3fv(p.u.uR, FACE, n * 9 + 3, 3); gl.uniform3fv(p.u.uU, FACE, n * 9 + 6, 3); }
+  else gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, n === 6 ? TEX.puff : TEX.rem, 0);
+  gl.viewport(0, 0, size, size); gl.uniform2f(p.u.uSize, size, size); gl.uniform1f(p.u.uMode, n < 6 ? 0 : n - 5); gl.uniform1f(p.u.uSeed, 7.3);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+/* ── the frame: nothing below allocates. No objects, arrays, closures or strings are made in here. */
+function step(dt, snap){
+  const t = S[CLOCK];
+  if (!drag){
+    if (Math.abs(S[VTH]) + Math.abs(S[VPH]) > 1e-5){ S[TH] += S[VTH]; S[PH] += S[VPH]; const k = Math.exp(-dt * 6); S[VTH] *= k; S[VPH] *= k; }   // a little inertia after a drag
+    if (running && hover < 0 && (S[IDLE] += dt) > 3){ const ds = dt * 0.035 * speed; S[TH] += 0.55 * Math.cos(S[SWAY]) * ds; S[SWAY] += ds; }   // left alone, it sways slowly from side to side: it never turns its back on the far scenery
+  }
+  S[PH] = clamp(S[PH], 0.25, 1.5);
+  S[RAD] = snap ? S[GRAD] : S[RAD] + (S[GRAD] - S[RAD]) * (1 - Math.exp(-dt * 4));
+  const kg = snap ? 1 : 1 - Math.exp(-dt * 2.5);
+  for (let g = 0; g < nG; g++){                // galaxies: centres glide to where they belong, discs turn
+    const o = g * 4, b = g * 6, q = g * 3, a = GW[g * 2] * t + GW[g * 2 + 1], ca = Math.cos(a), sa = Math.sin(a);
+    GAL[o] += (GALT[o] - GAL[o]) * kg; GAL[o + 1] += (GALT[o + 1] - GAL[o + 1]) * kg; GAL[o + 2] += (GALT[o + 2] - GAL[o + 2]) * kg; GAL[o + 3] += (GALT[o + 3] - GAL[o + 3]) * kg;
+    GU[q] = GB[b] * ca + GB[b + 3] * sa; GU[q + 1] = GB[b + 1] * ca + GB[b + 4] * sa; GU[q + 2] = GB[b + 2] * ca + GB[b + 5] * sa;
+    GV[q] = GB[b + 3] * ca - GB[b] * sa; GV[q + 1] = GB[b + 4] * ca - GB[b + 1] * sa; GV[q + 2] = GB[b + 5] * ca - GB[b + 2] * sa;
+  }
+  for (let i = 0; i < nN; i++){                // stars: each rides its galaxy's spiral; after a change of layout it glides from where it was
+    const o = i * 4, g = NL[o] | 0, q = g * 3, G = g * 4, R = GAL[G + 3], c = Math.cos(NL[o + 2]) * NL[o + 1] * R, s = Math.sin(NL[o + 2]) * NL[o + 1] * R, h = NL[o + 3] * R;
+    let x = GAL[G] + GU[q] * c + GV[q] * s + (GU[q + 1] * GV[q + 2] - GU[q + 2] * GV[q + 1]) * h;
+    let y = GAL[G + 1] + GU[q + 1] * c + GV[q + 1] * s + (GU[q + 2] * GV[q] - GU[q] * GV[q + 2]) * h;
+    let z = GAL[G + 2] + GU[q + 2] * c + GV[q + 2] * s + (GU[q] * GV[q + 1] - GU[q + 1] * GV[q]) * h;
+    if (NB[i] < 1){ const e = NB[i] = snap ? 1 : Math.min(1, NB[i] + dt * 0.9), m = e * e * (3 - 2 * e); x = PO[o] + (x - PO[o]) * m; y = PO[o + 1] + (y - PO[o + 1]) * m; z = PO[o + 2] + (z - PO[o + 2]) * m; }
+    PN[o] = x; PN[o + 1] = y; PN[o + 2] = z;
+  }
+  let gx = 0, gy = 0, gz = 0;                  // the camera looks at what is pinned, else at the galaxy in focus, else at the middle of it all
+  if (pin >= 0 && pin < nN){ gx = PN[pin * 4]; gy = PN[pin * 4 + 1]; gz = PN[pin * 4 + 2]; }
+  else if (focusG >= 0 && focusG < nG){ gx = GAL[focusG * 4]; gy = GAL[focusG * 4 + 1]; gz = GAL[focusG * 4 + 2]; }
+  const kc = snap ? 1 : 1 - Math.exp(-dt * 3.2);
+  S[CX] += (gx - S[CX]) * kc; S[CY] += (gy - S[CY]) * kc; S[CZ] += (gz - S[CZ]) * kc;
+  const r = S[RAD], sp = Math.sin(S[PH]), th = Math.tan(FOV / 2);
+  look(VIEW, S[CX] + r * sp * Math.sin(S[TH]), S[CY] + r * Math.cos(S[PH]), S[CZ] + r * sp * Math.cos(S[TH]), S[CX], S[CY], S[CZ]);
+  persp(PROJ, FOV, W / H, 0.1, 500); mul(VP, PROJ, VIEW);
+  V2W[0] = VIEW[0]; V2W[1] = VIEW[4]; V2W[2] = VIEW[8]; V2W[3] = VIEW[1]; V2W[4] = VIEW[5]; V2W[5] = VIEW[9]; V2W[6] = VIEW[2]; V2W[7] = VIEW[6]; V2W[8] = VIEW[10];
+  const ppu = PROJ[5] * H * 0.5, kt = Math.floor(t / 1000) * 1000;
+  UT[0] = kt; UT[1] = t - kt; UVIEW[0] = W * DPR; UVIEW[1] = H * DPR;
+  UCAM[0] = ppu * DPR; UCAM[1] = DPR; UCAM[2] = r + extent * 0.5; UCAM[3] = 0.022;
+  S[ALARM] += (S[AGOAL] - S[ALARM]) * (snap ? 1 : 1 - Math.exp(-dt * 1.2));
+  S[FADE] = bakeAt < BAKED ? 0 : snap ? 1 : Math.min(1, S[FADE] + dt * 0.6);                // the sky fades in once it has been painted
+  UX[0] = still ? 1 : 0; UX[1] = S[ALARM]; UX[2] = CONFIG.nebula * CLOUDS[PREF.clouds]; UX[3] = t - S[PULSE];
+  USKY[0] = th * W / H; USKY[1] = th; USKY[2] = S[FADE];
+  UROT[0] = Math.cos(t * 0.004); UROT[1] = Math.sin(t * 0.004); UROT[2] = Math.cos(1 - t * 0.0055); UROT[3] = Math.sin(1 - t * 0.0055);
+  const al = S[ALARM] * 0.5;                   // an alarmed estate reddens one of the sky's gases
+  UPA[0] = PAL[0][0] + (0.95 - PAL[0][0]) * al; UPA[1] = PAL[0][1] + (0.1 - PAL[0][1]) * al; UPA[2] = PAL[0][2] + (0.28 - PAL[0][2]) * al;
+  nEV = 0;                                     // sky events: age each one, drop those that are over, pack the rest for upload
+  for (let e = 0; e < MAXEV; e++){
+    if (!EVK[e]) continue;
+    const age = (t - EVT[e * 2]) / EVT[e * 2 + 1], o = nEV * 16, s = e * 16;
+    if (age < 0 || age >= 1){ EVK[e] = 0; continue; }
+    for (let k = 0; k < 16; k++) EVU[o + k] = EV[s + k];
+    EVU[o + 5] = age; nEV++;
+  }
+  const shower = t - EVS[0], storm = (t - EVS[2]) / EVS[3];
+  UEV[0] = shower >= 0 && shower < EVS[1] + 1.5 ? shower : -1; UEV[1] = EVS[1];
+  USTORM[3] = storm >= 0 && storm < 1 ? Math.sin(Math.PI * storm) : 0;
+  const kf = snap ? 1 : 1 - Math.exp(-dt / 0.14);
+  moonsOn = false;
+  for (let i = 0; i < nN; i++){                // where each star is on screen, and how far away
+    const o = i * 4, x = PN[o], y = PN[o + 1], z = PN[o + 2], w = VP[3] * x + VP[7] * y + VP[11] * z + VP[15];
+    FOC[i] += ((i === hover || i === pin ? 1 : 0) - FOC[i]) * kf; SCR[o + 3] = w;
+    if (w > 0.2 && PN[o + 3] * ppu > 2.6 * w) moonsOn = true;   // a star big enough on screen to have its moons shown (the shader fades them in from 3 px)
+    if (w > 0.2){ SCR[o] = ((VP[0] * x + VP[4] * y + VP[8] * z + VP[12]) / w * 0.5 + 0.5) * W; SCR[o + 1] = (0.5 - (VP[1] * x + VP[5] * y + VP[9] * z + VP[13]) / w * 0.5) * H; SCR[o + 2] = clamp(PN[o + 3] * ppu / w, 2.5, CAP); }
+  }
+  for (let a = 1; a < nN; a++){                // keep the drawing order farthest first. It barely changes from one frame to the next, so this is nearly free
+    const v = ORDER[a], wv = SCR[v * 4 + 3]; let b = a - 1;
+    while (b >= 0 && SCR[ORDER[b] * 4 + 3] < wv){ ORDER[b + 1] = ORDER[b]; b--; }
+    ORDER[b + 1] = v;
+  }
+  for (let k = 0; k < nN; k++){                // one row a star, in that order
+    const i = ORDER[k], o = i * 4, q = k * 16, s = i * 8;
+    INST[q] = PN[o]; INST[q + 1] = PN[o + 1]; INST[q + 2] = PN[o + 2]; INST[q + 3] = PN[o + 3];
+    INST[q + 4] = NST[s]; INST[q + 5] = NST[s + 1]; INST[q + 6] = NST[s + 2]; INST[q + 7] = NST[s + 3];
+    INST[q + 8] = NST[s + 4]; INST[q + 9] = FOC[i]; INST[q + 10] = NST[s + 5]; INST[q + 11] = Math.min(99, t - FL[i]); INST[q + 12] = 0;
+  }
+  for (let g = 0; g < nG; g++){
+    const o = g * 4, q = (nN + g) * 16, x = GAL[o], y = GAL[o + 1], z = GAL[o + 2], w = VP[3] * x + VP[7] * y + VP[11] * z + VP[15];
+    INST[q] = x; INST[q + 1] = y; INST[q + 2] = z; INST[q + 3] = GAL[o + 3] * 0.42;
+    GSCR[o + 3] = w;
+    if (w > 0.2){ GSCR[o] = ((VP[0] * x + VP[4] * y + VP[8] * z + VP[12]) / w * 0.5 + 0.5) * W; GSCR[o + 1] = (0.5 - (VP[1] * x + VP[5] * y + VP[9] * z + VP[13]) / w * 0.5) * H; GSCR[o + 2] = GAL[o + 3] * ppu / w; }
+  }
+}
+function common(p){
+  gl.useProgram(p.p);
+  gl.uniformMatrix4fv(p.u.uVP, false, VP); gl.uniformMatrix3fv(p.u.uV2W, false, V2W); gl.uniform2fv(p.u.uView, UVIEW); gl.uniform2fv(p.u.uT, UT); gl.uniform4fv(p.u.uCam, UCAM); gl.uniform4fv(p.u.uX, UX);
+  if (p.u.uGal){ gl.uniform4fv(p.u.uGal, GAL); gl.uniform3fv(p.u.uGU, GU); gl.uniform3fv(p.u.uGV, GV); }
+  if (p.u.uSel) gl.uniform1f(p.u.uSel, hover >= 0 ? hover : pin);
+}
+function draw(){
+  if (bakeAt < BAKED){ if (running) bakeStep(); else while (bakeAt < BAKED) bakeStep(); }   // start-up only: one painting step a frame, or all at once for a still picture
+  const timed = tqx && !tqOn && bakeAt >= BAKED; if (timed) gl.beginQuery(tqx.TIME_ELAPSED_EXT, tq);
+  if (nN){ gl.activeTexture(gl.TEXTURE3); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, nN, 1, gl.RGBA, gl.FLOAT, PN); }   // where the stars are now, for the links, comets and moons
+  // Off screen first, both small: 1 the sky, 2 the clouds among the galaxies. They are the two costliest things here and the two softest, so they are drawn at a fraction of the size and enlarged
+  const clouds = nP > 0 && bakeAt >= BAKED;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, FBA); gl.viewport(0, 0, BW, BH); gl.disable(gl.BLEND); common(PR.sky);
+  gl.uniform4fv(PR.sky.u.uSky, USKY); gl.uniform4fv(PR.sky.u.uRot, UROT); gl.uniform4fv(PR.sky.u.uStorm, USTORM); gl.uniform3fv(PR.sky.u.uPA, UPA); gl.uniform3fv(PR.sky.u.uPB, UPB); gl.uniform3fv(PR.sky.u.uPC, UPC);
+  gl.bindVertexArray(VA.none); gl.drawArrays(gl.TRIANGLES, 0, 3);
+  if (clouds){ gl.bindFramebuffer(gl.FRAMEBUFFER, FBB); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.BLEND); common(PR.puff); gl.bindVertexArray(VA.puff); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nP); }
+  // Then the canvas. 3 the sky, enlarged: it covers everything from last frame, so nothing needs clearing
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, canvas.width, canvas.height); gl.disable(gl.BLEND);
+  gl.useProgram(PR.blit.p); gl.uniform1i(PR.blit.u.uTex, 4); gl.uniform1f(PR.blit.u.uDither, 1 / 255); gl.bindVertexArray(VA.none); gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.enable(gl.BLEND);
+  // 4 far stars, 5 the far scenery (which hides the sky and the stars behind it), 6 the clouds, enlarged, over both
+  common(PR.star); gl.bindVertexArray(VA.star); gl.drawArrays(gl.POINTS, 0, D.stars);
+  if (nSC && bakeAt >= BAKED){ gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); common(PR.scene); gl.bindVertexArray(VA.scn); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nSC); gl.blendFunc(gl.ONE, gl.ONE); }
+  if (clouds){ gl.useProgram(PR.blit.p); gl.uniform1i(PR.blit.u.uTex, 5); gl.uniform1f(PR.blit.u.uDither, 0); gl.bindVertexArray(VA.none); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+  // 7 each galaxy's glowing disc, 8 its loose stars
+  if (nG){ common(PR.disc); gl.bindVertexArray(VA.disc); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nG); }
+  if (nGP){ common(PR.gal); gl.bindVertexArray(VA.gal); gl.drawArrays(gl.POINTS, 0, nGP); }
+  // a sky event, while there is one: the one pass that can take light away, for the black hole's shadow
+  if (nEV){
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); common(PR.event);
+    gl.bindBuffer(gl.ARRAY_BUFFER, BUF.ev); gl.bufferSubData(gl.ARRAY_BUFFER, 0, EVU, 0, nEV * 16);
+    gl.bindVertexArray(VA.event); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nEV); gl.blendFunc(gl.ONE, gl.ONE);
+  }
+  // 9 links, 10 comets, moons and falling stars
+  if (nL){ common(PR.link); gl.bindVertexArray(VA.link); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, (SEG + 1) * 2, nL); }
+  if (nS){ common(PR.sprite); gl.uniform4fv(PR.sprite.u.uEv, UEV); gl.uniform3fv(PR.sprite.u.uEvP, UEVP); gl.bindVertexArray(VA.spr); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, moonsOn ? nS : nS0); }   // seen from afar a big estate has thousands of moons too small to show: they are not sent at all
+  // 11 the stars themselves and the galaxy cores: drawn last, farthest first, each hiding what is behind it
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  common(PR.node); gl.bindBuffer(gl.ARRAY_BUFFER, BUF.inst); gl.bufferSubData(gl.ARRAY_BUFFER, 0, INST, 0, (nN + nG) * 16);
+  gl.bindVertexArray(VA.node); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nN + nG); gl.blendFunc(gl.ONE, gl.ONE);
+  if (timed){ gl.endQuery(tqx.TIME_ELAPSED_EXT); tqOn = true; }
+}
+function taken(x0, y0, x1, y1, n, self){       // does this rectangle meet one already claimed this frame (other than its own star)?
+  for (let j = 0; j < n; j++){ const q = j * 4; if (OWN[j] !== self && x0 < BOX[q + 2] && x1 > BOX[q] && y0 < BOX[q + 3] && y1 > BOX[q + 1]) return true; }
+  return false;
+}
+function claim(j, x0, y0, x1, y1, self){ const q = j * 4; BOX[q] = x0; BOX[q + 1] = y0; BOX[q + 2] = x1; BOX[q + 3] = y1; OWN[j] = self; }
+function setLabel(j, vis, x, y){               // transform only, from strings built ahead of time; nothing is measured here
+  if (vis !== LV[j]){ LV[j] = vis; LS[j].visibility = vis ? 'visible' : 'hidden'; LS[j].willChange = LSI[j].willChange = vis ? 'transform' : 'auto'; }   // a layer of its own only while it is on show: hundreds of hidden ones would each cost the browser one
+  if (!vis) return;
+  const ix = clamp(Math.round(x * DPR), 0, TX.length - 1), iy = clamp(Math.round(y * DPR), 0, TY.length - 1);
+  if (ix !== LX[j]){ LX[j] = ix; LS[j].transform = TX[ix]; }
+  if (iy !== LY[j]){ LY[j] = iy; LSI[j].transform = TY[iy]; }
+}
+function placeLabels(){
+  let used = 0, shown = 0;
+  for (let g = 0; g < nG; g++){                // galaxy names: above each disc, always shown while on screen
+    const o = g * 4, j = MAXN + g, hw = LW[j] * 0.5 + 6, x = GSCR[o], y = GSCR[o + 1] - Math.min(GSCR[o + 2] * 0.55, H * 0.3) - 30;
+    const vis = GSHOW[g] && GSCR[o + 3] > 0.2 && x > -40 && x < W + 40 && y > 60 && y < H - 30 ? 1 : 0;
+    if (vis) claim(used++, x - hw, y, x + hw, y + 36, -1);
+    setLabel(j, vis, x, y);
+  }
+  for (let i = 0; i < nN; i++){ const o = i * 4; if (SCR[o + 3] > 0.2){ const r = SCR[o + 2] * 1.5; claim(used++, SCR[o] - r, SCR[o + 1] - r, SCR[o] + r, SCR[o + 1] + r, i); } }   // stars claim their own space
+  for (let k = 0; k < nN; k++){                // star names, most pressing first: failing and pinned ones always, the rest while they are large enough and there is room
+    const i = LORD[k], o = i * 4, held = i === hover || i === pin, must = held || LMUST[i], hw = LW[i] * 0.5 + 4, r = SCR[o + 2];
+    let vis = 0, x = SCR[o], y = SCR[o + 1] + r * (LMUST[i] ? 2.7 : 1.7) + 5;   // a troubled star's name sits clear of its rings
+    if (SCR[o + 3] > 0.2 && (must || (r >= 4.2 && shown < D.labels)) && x > -60 && x < W + 60 && y > 0 && y < H){
+      vis = 1;
+      if (taken(x - hw, y, x + hw, y + 17, used, i)){ y = SCR[o + 1] - r * 1.7 - 22; if (taken(x - hw, y, x + hw, y + 17, used, i) && !must) vis = 0; }   // below is taken: try above; failing that, hide
+      if (vis){ shown++; claim(used++, x - hw, y, x + hw, y + 17, i); }
+    }
+    setLabel(i, vis, x, y);
+  }
+}
+function render(dt, snap){ step(dt, snap); if (gl) draw(); else draw2d(); placeLabels(); }
+function loop(now){
+  raf = requestAnimationFrame(loop);
+  const dt = (now - S[LAST]) / 1000;
+  if (dt < D.minDt) return;                    // about 60 frames a second is plenty, whatever the display can do; 30 on low detail
+  S[LAST] = now; S[CLOCK] += (dt > 0.1 ? 0.1 : dt) * speed;       // the scene's own clock runs slow or fast with the Motion setting; the camera stays in real time
+  render(dt > 0.1 ? 0.1 : dt, false);
+  if (CONFIG.gpuBudgetMs && gl && dt < 0.1 && bakeAt >= BAKED && PREF.detail === 'auto') guard(dt);
+}
+// The load guard. Where the browser will time the GPU, that time is what counts; where it will not, frames coming slower than 25 a second say
+// the same thing. Too dear for a second or two and the scene is redrawn at three quarters of the resolution, then at half. A reload restores it.
+function guard(dt){
+  if (tqx){
+    if (!tqOn || !gl.getQueryParameter(tq, gl.QUERY_RESULT_AVAILABLE)) return;
+    tqOn = false;
+    if (!gl.getParameter(tqx.GPU_DISJOINT_EXT)) S[LOAD] += (gl.getQueryParameter(tq, gl.QUERY_RESULT) / 1e6 - S[LOAD]) * 0.04;
+  } else S[LOAD] += (dt * 25 * CONFIG.gpuBudgetMs - S[LOAD]) * 0.02;
+  if (S[LOAD] > CONFIG.gpuBudgetMs && scale > 0.5 && !shrinking){ shrinking = true; setTimeout(shrink, 0); }
+}
+function shrink(){ shrinking = false; if (PREF.detail !== 'auto') return; scale = autoScale = autoScale > 0.8 ? 0.75 : 0.5; S[LOAD] = 0; document.body.classList.add('lite'); resize(); say(); }
+function single(){ pend = 0; if (!running) render(0, true); }
+function once(){ if (!running && !pend) pend = requestAnimationFrame(single); }   // one frame, for when the loop is stopped
+function start(){
+  if (running || still || !gl || document.hidden || (CONFIG.pauseOnBlur && !document.hasFocus())) return;
+  running = true; S[LAST] = performance.now(); S[LOAD] = 0; raf = requestAnimationFrame(loop); say();
+}
+function stop(){ if (running){ cancelAnimationFrame(raf); raf = 0; running = false; } say(); once(); }
+
+/* ── no WebGL2: one still, flat picture from the same layout. Degraded, not blank. */
+function draw2d(){
+  const w = canvas.width, h = canvas.height;
+  g2.setTransform(DPR, 0, 0, DPR, 0, 0); g2.fillStyle = '#02030a'; g2.fillRect(0, 0, w, h);
+  for (let g = 0; g < nG; g++){ const o = g * 4; if (GSCR[o + 3] <= 0.2) continue; g2.strokeStyle = 'rgba(140,160,255,.35)'; g2.beginPath(); g2.ellipse(GSCR[o], GSCR[o + 1], GSCR[o + 2], GSCR[o + 2] * 0.5, 0, 0, TAU); g2.stroke(); }
+  for (let i = 0; i < nN; i++){
+    const o = i * 4, q = i * 8; if (SCR[o + 3] <= 0.2) continue;
+    g2.fillStyle = 'rgb(' + (NST[q] * 255 | 0) + ',' + (NST[q + 1] * 255 | 0) + ',' + (NST[q + 2] * 255 | 0) + ')';
+    g2.beginPath(); g2.arc(SCR[o], SCR[o + 1], Math.max(3, SCR[o + 2]), 0, TAU); g2.fill();
+  }
+}
+
+/* ── data: the file → a model → buffers. Runs when data arrives, never in a frame.
+   The reader is forgiving on purpose: unknown fields are ignored, missing ones stay unknown and are shown as a dash.
+   Nothing is guessed, and nothing that was in the file is dropped without a note in the footer. */
+const isNum = v => typeof v === 'number' && isFinite(v), arr = v => Array.isArray(v) ? v : [], str = v => v == null ? '' : String(v);
+const word = v => typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';   // an id or a group must be plain text or a number; anything else counts as absent
+const ALIAS = { ok: 'ok', up: 'ok', online: 'ok', healthy: 'ok', running: 'ok', active: 'ok', good: 'ok', green: 'ok', pass: 'ok',
+  warn: 'warn', warning: 'warn', degraded: 'warn', stale: 'warn', yellow: 'warn', amber: 'warn',
+  bad: 'bad', down: 'bad', error: 'bad', failed: 'bad', failing: 'bad', critical: 'bad', crit: 'bad', red: 'bad',
+  off: 'off', offline: 'off', stopped: 'off', inactive: 'off', disabled: 'off', paused: 'off' };
+const stateOf = v => v == null || v === '' ? 'unknown' : ALIAS[str(v).toLowerCase().trim()] || 'unknown';
+const RANK = { bad: 3, warn: 2, ok: 1, off: 0, unknown: 0 };
+let model = { title: '', generated: null, nodes: [], groups: [], links: [], alerts: [], notes: [] };
+const feed = { mode: 'wait', err: '', at: 0, age: null, text: '' };   // mode: wait, live, demo, lost (it was there and is gone), none (never there), invalid
+
+function metricsOf(m){                          // [{label, value, max, text, status}] or the shorthand {cpu: 0.4}. value is a share from 0 to 1, or any number with a max
+  const list = Array.isArray(m) ? m : m && typeof m === 'object' ? Object.keys(m).map(k => m[k] && typeof m[k] === 'object' ? Object.assign({ label: k }, m[k]) : { label: k, value: m[k] }) : [];
+  return list.filter(x => x && typeof x === 'object' && x.label != null).slice(0, 12).map(x => {
+    const v = isNum(x.value) ? x.value : null, share = v == null ? null : isNum(x.max) && x.max > 0 ? clamp(v / x.max, 0, 1) : v >= 0 && v <= 1 ? v : null;
+    return { label: str(x.label), share, text: x.text != null ? str(x.text) : share != null ? Math.round(share * 100) + '%' : v != null ? str(v) : null,
+      level: x.status != null ? stateOf(x.status) : share == null ? 'ok' : share >= 0.93 ? 'bad' : share >= 0.8 ? 'warn' : 'ok' };
+  });
+}
+function rowsOf(d){                             // {key: value}, or [[key, value], …], or [{label, value}]
+  const list = Array.isArray(d) ? d.map(x => Array.isArray(x) ? x : x && typeof x === 'object' ? [x.label, x.value] : [x, null]) : d && typeof d === 'object' ? Object.keys(d).map(k => [k, d[k]]) : [];
+  return list.filter(x => x[0] != null).slice(0, 16).map(x => [str(x[0]), x[1] == null || x[1] === '' ? null : str(x[1])]);
+}
+function normalise(raw){
+  const d = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, notes = [], byId = new Map();
+  let nodes = [], skipped = 0;
+  arr(d.nodes).forEach(n => {
+    const id = n && typeof n === 'object' ? word(n.id != null ? n.id : n.name != null ? n.name : n.label) : '';
+    if (!id || byId.has(id)){ skipped++; return; }
+    const node = { id, label: word(n.label) || word(n.name) || word(n.title) || id, group: word(n.group), kind: word(n.kind), status: stateOf(n.status), stated: word(n.status),
+      weight: isNum(n.weight) && n.weight > 0 ? n.weight : 1, metrics: metricsOf(n.metrics), rows: rowsOf(n.detail), problems: arr(n.problems).map(str).filter(Boolean).slice(0, 8),
+      moons: arr(n.moons).map(m => m && typeof m === 'object' ? { label: str(m.label != null ? m.label : m.name), status: stateOf(m.status), text: m.text != null ? str(m.text) : '' } : { label: str(m), status: 'unknown', text: '' }).filter(m => m.label).slice(0, 24) };
+    byId.set(id, node); nodes.push(node);
+  });
+  if (skipped) notes.push(skipped + (skipped === 1 ? ' node has' : ' nodes have') + ' no id, or one already used, and ' + (skipped === 1 ? 'is' : 'are') + ' not drawn');
+  if (!nodes.length) notes.push('the data file has no nodes');
+  if (nodes.length > MAXN){ notes.push('showing ' + MAXN + ' of ' + nodes.length + ' nodes'); nodes = nodes.slice(0, MAXN); }
+  // groups: the ones the file declares, plus any a node names. With more than the sky has room for, the smallest are gathered into one.
+  const gmap = new Map(), declare = (id, label, status) => { if (!gmap.has(id)) gmap.set(id, { id, label: label || id, stated: status, members: [] }); return gmap.get(id); };
+  arr(d.groups).forEach(g => { if (g && typeof g === 'object' && word(g.id)) declare(word(g.id), word(g.label) || word(g.name) || word(g.title), g.status); });
+  nodes.forEach(n => declare(n.group, '', null).members.push(n));
+  let groups = [...gmap.values()].filter(g => g.members.length);
+  if (groups.length > MAXG){
+    groups.sort((a, b) => b.members.length - a.members.length || (a.id < b.id ? -1 : 1));
+    const rest = groups.slice(MAXG - 1), other = { id: '\u0000other', label: 'Other (' + rest.length + ' groups)', stated: null, members: [].concat(...rest.map(g => g.members)) };
+    notes.push(rest.length + ' small groups are drawn as one galaxy'); groups = groups.slice(0, MAXG - 1).concat(other);
+  }
+  groups.forEach((g, gi) => {
+    if (g.id === '') g.label = groups.length > 1 ? 'Ungrouped' : '';
+    g.members.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0); g.members.forEach(n => { n.g = gi; });
+    const worst = g.members.reduce((w, n) => RANK[n.status] > RANK[w] ? n.status : w, 'unknown');
+    g.status = g.stated != null && g.stated !== '' ? stateOf(g.stated) : worst === 'unknown' && g.members.some(n => n.status === 'off') ? 'off' : worst;
+  });
+  nodes.forEach((n, i) => { n.i = i; });
+  // links: both ends must be stars that exist
+  let lost = 0; const links = [], pairs = new Map();
+  arr(d.links).forEach(l => {
+    const a = l && typeof l === 'object' ? byId.get(word(l.from)) : null, b = a ? byId.get(word(l.to)) : null;
+    if (!a || !b || a === b || a.i == null || b.i == null){ lost++; return; }
+    const key = a.i < b.i ? a.i + ':' + b.i : b.i + ':' + a.i, twin = pairs.get(key) || 0; pairs.set(key, twin + 1);
+    links.push({ a: a.i, b: b.i, label: str(l.label), kind: str(l.kind), rate: isNum(l.rate) ? clamp(l.rate, 0, 1) : 0.5, status: l.status == null ? 'ok' : stateOf(l.status), twin });
+  });
+  if (lost) notes.push(lost + (lost === 1 ? ' link is' : ' links are') + ' not drawn: an end is missing from the file or not shown');
+  if (links.length > MAXL) notes.push('showing ' + MAXL + ' of ' + links.length + ' links');
+  // alerts: the file's own, then each node's problems; a failing node with neither still gets one, so a red star is never unexplained
+  const alerts = [];
+  arr(d.alerts).forEach(a => { if (a && typeof a === 'object' && a.text != null) alerts.push({ level: stateOf(a.level) === 'bad' ? 'bad' : stateOf(a.level) === 'ok' || str(a.level).toLowerCase() === 'info' ? 'info' : 'warn', node: byId.get(word(a.node)) || null, text: str(a.text) }); });
+  nodes.forEach(n => {
+    n.problems.forEach(p => alerts.push({ level: n.status === 'bad' ? 'bad' : 'warn', node: n, text: p }));
+    if (n.status === 'bad' && !n.problems.length && !alerts.some(a => a.node === n)) alerts.push({ level: 'bad', node: n, text: 'reported as ' + (n.stated || 'failing') });
+  });
+  alerts.sort((a, b) => (a.level === 'bad' ? 0 : a.level === 'warn' ? 1 : 2) - (b.level === 'bad' ? 0 : b.level === 'warn' ? 1 : 2));
+  const gen = isNum(d.generated) ? d.generated : typeof d.generated === 'string' && isFinite(Date.parse(d.generated)) ? Date.parse(d.generated) / 1000 : null;
+  return { title: str(d.title), generated: gen, nodes, groups, links: links.slice(0, MAXL), alerts, notes };
+}
+
+function ingest(m, first){
+  const was = new Map(model.nodes.map(n => [n.id, { status: n.status, x: PN[n.i * 4], y: PN[n.i * 4 + 1], z: PN[n.i * 4 + 2], slot: n.slot, foc: FOC[n.i], fl: FL[n.i] }]));
+  const hadG = new Map(model.groups.map((g, gi) => [g.id, [GAL[gi * 4], GAL[gi * 4 + 1], GAL[gi * 4 + 2], GAL[gi * 4 + 3]]]));
+  const pinId = pin >= 0 && model.nodes[pin] ? model.nodes[pin].id : null, focId = focusG >= 0 && model.groups[focusG] ? model.groups[focusG].id : null, hadAny = model.nodes.length > 0;
+  model = m; nN = m.nodes.length; nG = m.groups.length; hover = -1;
+  pin = pinId == null ? -1 : m.nodes.findIndex(n => n.id === pinId); focusG = focId == null ? -1 : m.groups.findIndex(g => g.id === focId);
+  layout(hadG);
+  m.nodes.forEach(n => {
+    const b = was.get(n.id), o = n.i * 4, g = n.g * 4;
+    FOC[n.i] = b ? b.foc : 0; FL[n.i] = b ? b.fl : -100;
+    if (b && b.slot === n.slot) NB[n.i] = 1;                       // same place in the same galaxy: it simply keeps riding
+    else { NB[n.i] = 0; PO[o] = b ? b.x : GALT[g]; PO[o + 1] = b ? b.y : GALT[g + 1]; PO[o + 2] = b ? b.z : GALT[g + 2]; }   // moved: glide from where it was. New: rise out of its galaxy's core
+    if (hadAny && (!b || b.status !== n.status)) FL[n.i] = S[CLOCK];   // a change of state, or a newcomer: one bright shell
+  });
+  fill(); buildLabels(); header(); showRead();
+  if (first) placeScenery();                                      // the far scenery takes whichever corners of the opening view this estate leaves clear
+  if (!first) S[PULSE] = running ? S[CLOCK] : -100;                // data landed: a front runs down every link
+  if (!S[ZOOMED] && pin < 0 && focusG < 0) S[GRAD] = S[HOMER];
+  if (first) S[RAD] = S[GRAD];
+  once();
+}
+
+// Where everything goes. A name always hashes to the same place, so the sky only rearranges when a group or a node comes or goes.
+function layout(hadG){
+  const G = model.groups, placed = [];
+  const order = G.map((g, i) => i).sort((a, b) => G[b].members.length - G[a].members.length || (G[a].id < G[b].id ? -1 : 1));
+  const seq = order.length ? [order[0]].concat(order.slice(1).sort((a, b) => G[a].id < G[b].id ? -1 : 1)) : [];   // the biggest in the middle, the rest round it in name order
+  extent = 6;
+  seq.forEach((gi, k) => {
+    const g = G[gi], h = hashStr('g:' + g.id), f1 = (h & 1023) / 1023, f2 = (h >>> 10 & 1023) / 1023, f3 = (h >>> 20 & 1023) / 1023;
+    const m = g.members.length, R = clamp(2.3 + 0.72 * Math.sqrt(m), 2.9, 18), o = gi * 4, b = gi * 6, dir = f2 < 0.5 ? -1 : 1;   // a galaxy grows with what it holds
+    let x = 0, y = 0, z = 0;
+    if (k){
+      const a = k * 2.39996 + 0.9; let dist = placed[0].R + R + 2.6; y = (f1 - 0.5) * 6.5;   // well above and below one another, so the sky has depth from any side
+      for (let tries = 0; tries < 900; tries++){ x = Math.cos(a) * dist; z = Math.sin(a) * dist; if (!placed.some(p => Math.hypot(p.x - x, p.z - z) < p.R + R + 1.5)) break; dist += 0.6; }
+    }
+    placed.push({ x, z, R }); extent = Math.max(extent, Math.hypot(x, z) + R * 1.05);
+    GALT.set([x, y, z, R], o);
+    const had = hadG.get(g.id); GAL.set(had || [x, y, z, R], o);  // a galaxy seen before glides from where it was; a new one appears in place
+    let nx = (f2 - 0.5) * 1.5, ny = 1, nz = (f3 - 0.5) * 1.5, l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;   // its disc: tilted a little, each its own way
+    let ux = 1 - nx * nx, uy = -nx * ny, uz = -nx * nz; l = Math.hypot(ux, uy, uz); ux /= l; uy /= l; uz /= l;
+    GB.set([ux, uy, uz, ny * uz - nz * uy, nz * ux - nx * uz, nx * uy - ny * ux], b);
+    GW[gi * 2] = dir * (0.014 + 0.014 * f1) * Math.sqrt(3 / R); GW[gi * 2 + 1] = f3 * TAU;       // big galaxies turn more slowly
+    g.arms = m > 90 ? 5 : m > 24 ? 4 : m > 10 || f3 > 0.55 ? 3 : 2; g.twist = -dir * (3 + 1.8 * f2);          // a crowded galaxy gets more arms to string its stars along; the arms trail behind the turn
+    g.members.forEach((n, j) => {                                 // its stars: strung out along the arms, alternating between them
+      const hn = hashStr('n:' + n.id), rf = m === 1 ? 0.52 : 0.24 + 0.72 * Math.pow((j + 0.5) / m, 0.78);
+      const th = (j % g.arms) * TAU / g.arms + g.twist * rf + ((hn % 100) / 100 - 0.5) * (0.22 + Math.min(0.4, m / 300)), hh = ((hn >>> 8) % 100 / 100 - 0.5) * 0.07;
+      NL.set([gi, rf, th, hh], n.i * 4); n.slot = g.id + '|' + j + '|' + m + '|' + g.arms;
+    });
+    GSHOW[gi] = g.label ? 1 : 0;
+  });
+  const asp = W / H; S[HOMER] = clamp(extent * (0.8 + Math.min(0.1, nG * 0.004)) / (Math.tan(FOV / 2) * Math.min(1, asp * 0.72)), 7, 180);
+  model.nodes.map(n => n.i).sort((a, b) => RANK[model.nodes[b].status] - RANK[model.nodes[a].status] || model.nodes[b].weight - model.nodes[a].weight).forEach((i, k) => { LORD[k] = i; });   // whose name is placed first: failing, then needing a look, then the weightiest model.nodes.forEach(n => { LMUST[n.i] = n.status === 'bad' || n.status === 'warn' ? 1 : 0; });
+  S[AGOAL] = model.nodes.some(n => n.status === 'bad') ? 1 : model.nodes.some(n => n.status === 'warn') ? 0.3 : 0;
+}
+
+let builtFor = '';                             // what the galaxies' loose stars and the clouds were last built for
+function fill(){
+  const N = model.nodes, G = model.groups, maxW = N.reduce((m, n) => Math.max(m, n.weight), 1);
+  N.forEach(n => {
+    const o = n.i * 4, h = hashStr('n:' + n.id), col = n.status === 'ok' ? STAR.ok[h % STAR.ok.length] : STAR[n.status];
+    PN[o + 3] = (0.12 + 0.15 * Math.sqrt(n.weight / maxW)) * (n.status === 'off' ? 0.75 : 1);
+    NST.set([col[0], col[1], col[2], n.status === 'bad' ? 1.25 : 1, STATES.indexOf(n.status), (h % 9973) / 9973, 0, 0], n.i * 8); ORDER[n.i] = n.i;
+  });
+  // The heavy, static part: each galaxy's loose stars, and the clouds. It depends only on which galaxies there are, how big, and the detail level,
+  // so an ordinary refresh, where only readings and states change, leaves it alone.
+  const shape = D.parts + '|' + D.puffs + '|' + G.map((g, gi) => g.id + ':' + g.members.length + ':' + GALT[gi * 4].toFixed(1) + ':' + GALT[gi * 4 + 2].toFixed(1)).join(','), rebuild = shape !== builtFor;
+  if (rebuild){
+    const r = rng(90210), sumR2 = G.reduce((s, g, gi) => s + GALT[gi * 4 + 3] ** 2, 0) || 1; builtFor = shape; nGP = 0; nP = 0;
+    for (let k = 0, m = Math.min(8, D.puffs >> 1); k < m; k++){   // a few large clouds out between the galaxies, in the sky's colours
+      const a = r() * TAU, d = extent * (0.4 + 0.9 * r()), c = PAL[k % 3];
+      PUFF.set([Math.cos(a) * d, (r() - 0.5) * 7, Math.sin(a) * d, 4.5 + 5 * r(), c[0], c[1], c[2], 0.24, r() * TAU, (r() - 0.5) * 0.008, r(), 0], nP++ * 12);
+    }
+    G.forEach((g, gi) => {
+      const o = gi * 4, R = GALT[o + 3], tint = HUES[hashStr('h:' + g.id) % HUES.length], sign = Math.sign(GW[gi * 2]);
+      for (let k = 0, count = Math.round(D.parts * R * R / sumR2); k < count && nGP < D.parts; k++){   // its loose stars: most along the arms, the rest a haze thickest at the heart
+        const arm = r() < 0.7, rf = arm ? 0.1 + 0.95 * Math.pow(r(), 0.75) : 1.05 * Math.pow(r(), 1.7), spread = (r() + r() + r() - 1.5) / 1.5;
+        const th = arm ? Math.floor(r() * g.arms) * TAU / g.arms + g.twist * rf + spread * (0.16 + 0.3 * (1 - rf)) : r() * TAU;
+        const warm = Math.exp(-rf * 4.5), spark = r() < 0.07, c = spark ? (r() < 0.5 ? [1, 0.5, 0.8] : [0.55, 0.95, 1]) : tint, b = spark ? 1.5 : 0.4 + 0.6 * r();
+        GPB.set([gi, rf, th, (r() + r() - 1) * 0.045 * (1.25 - Math.min(rf, 1)),
+          ((c[0] * 0.75 + 0.25) * (1 - warm) + warm) * b, ((c[1] * 0.75 + 0.25) * (1 - warm) + 0.86 * warm) * b, ((c[2] * 0.75 + 0.25) * (1 - warm) + 0.66 * warm) * b,
+          0.009 + 0.016 * r() * r() + (spark ? 0.008 : 0), arm ? 0 : sign * (0.003 + 0.004 / (0.25 + rf)), r()], nGP++ * 10);
+      }
+      for (let k = 0; k < 2 && nP < D.puffs; k++){                // two clouds in its own colour, drifting just off its disc
+        const a = r() * TAU, d = R * (0.3 + 0.5 * r());
+        PUFF.set([GALT[o] + Math.cos(a) * d, GALT[o + 1] + (r() - 0.5) * R * 0.5, GALT[o + 2] + Math.sin(a) * d, R * (1.1 + 0.7 * r()), tint[0], tint[1], tint[2], 0.3, r() * TAU, (r() - 0.5) * 0.012, r(), 0], nP++ * 12);
+      }
+    });
+  }
+  G.forEach((g, gi) => {                                          // each galaxy's core and disc carry its state, so these are always refreshed
+    const hg = hashStr('h:' + g.id), tint = HUES[hg % HUES.length], alarm = g.status === 'bad' ? 1 : g.status === 'warn' ? 0.4 : 0, core = alarm > 0.9 ? [1, 0.42, 0.38] : alarm ? [1, 0.76, 0.48] : [1, 0.88, 0.7];
+    INST.set([0, 0, 0, GALT[gi * 4 + 3] * 0.42, core[0], core[1], core[2], 0.4, 0, 0, (hg % 997) / 997, 99, 5, alarm, 0, 0], (nN + gi) * 16);
+    DISC.set([gi, g.arms, g.twist, alarm, tint[0], tint[1], tint[2], 0.6], gi * 8);
+  });
+  nL = model.links.length; nS = 0;
+  const r = rng(4711), put = (...v) => { if (nS < MAXS) SPR.set(v, nS++ * 16); };          // its own fixed seed: nothing below shifts when the part above is skipped
+  for (let j = 0; j < 10; j++) put(5 + 11 * r(), r(), 0, 0, r(), 0, 1.4 + r(), 3, 0.85, 0.92, 1, 0.9, 0, 0, 0, 0);   // ten falling stars, each on its own clock
+  for (let j = 0; j < 28; j++) put(0, r(), 0, 0, (j + r()) / 28 * 0.85, 0, 1.7 + 1.4 * r(), 4, 0.8, 0.93, 1, 1, 0, 0, 0, 0);   // and a shower's worth, which wait for a shower to be called
+  const lenOf = e => N[e.a].g === N[e.b].g ? GALT[N[e.a].g * 4 + 3] * 0.9 : Math.hypot(GALT[N[e.a].g * 4] - GALT[N[e.b].g * 4], GALT[N[e.a].g * 4 + 2] - GALT[N[e.b].g * 4 + 2]);
+  const wanted = model.links.reduce((s, e) => s + 3 + e.rate * 12 + lenOf(e) * 0.6, 0);     // the comets every link would carry if there were no limit
+  const thin = Math.min(1, MAXS * 0.42 / (wanted + 1)) * D.comets;                         // with a great many links, each carries fewer: the traffic still reads, the work stays bounded, and there is room left for moons
+  const ease = clamp(Math.sqrt(90 / (model.links.length + 1)), 0.15, 1);                   // and each is drawn fainter, so a thousand of them still read as threads and not as one white sheet
+  model.links.forEach((e, k) => {
+    const A = N[e.a], B = N[e.b], live = A.status !== 'off' && B.status !== 'off' && e.status !== 'off', same = A.g === B.g;
+    const col = e.status === 'bad' ? STAR.bad : e.status === 'warn' ? STAR.warn : LINKS[hashStr('k:' + e.kind) % LINKS.length];
+    const bend = same ? 0.18 : 0.24, lane = e.twin ? (e.twin % 2 ? 0.08 : -0.08) * Math.ceil(e.twin / 2) : 0, pace = 0.07 + 0.16 * e.rate;
+    const len = lenOf(e);
+    LINKB.set([e.a, e.b, bend, lane, col[0], col[1], col[2], live ? 1 : 0, 0.3 + 0.6 * e.rate, r(), e.status === 'bad' || e.status === 'warn' ? Math.max(ease, 0.7) : ease, len], k * 12);
+    for (let j = 0, m = live ? clamp(Math.round((3 + e.rate * 12 + len * 0.6) * thin), 1, 34) : 0; j < m; j++){   // nothing travels a link with a dark end
+      const big = j % 6 === 0, f = big ? 0.2 : 0.5;               // one in six is a slow, heavy packet; the rest are sparks that dart and spiral round the path
+      put(e.a, e.b, bend, lane, (j + r() * 0.7) / m, pace * (big ? 0.5 + 0.3 * r() : 0.8 + 1.6 * r() * r()), big ? 2.2 + r() * 0.8 : 0.9 + r() * 0.8, 0,
+        f + (1 - f) * col[0], f + (1 - f) * col[1], f + (1 - f) * col[2], (big ? 0.95 : 0.4 + 0.45 * r()) * (0.45 + 0.55 * ease), big ? 0 : 0.03 + 0.1 * r(), (r() < 0.5 ? -1 : 1) * (2 + 3 * r()), big ? 0.06 : 0.02 + 0.03 * r(), 0);
+    }
+  });
+  nS0 = nS;
+  N.forEach(n => n.moons.slice(0, 8).forEach((m, j) => {         // moons: up to eight a star, the inner ones quicker
+    const c = m.status === 'ok' ? [0.78, 0.87, 1] : STAR[m.status], sd = NST[n.i * 8 + 5];
+    put(n.i, 2.2 + j * 0.42, sd, 0, r(), (0.05 + 0.07 * r()) / (1 + j * 0.3) * (sd < 0.5 ? 1 : -1), 0.04, 1, c[0], c[1], c[2], m.status === 'off' ? 0.45 : 0.95, 0, 0, 0, 0);
+  }));
+  if (gl){
+    for (const [b, d, n] of [[BUF.link, LINKB, nL * 12], [BUF.spr, SPR, nS * 16], [BUF.disc, DISC, nG * 8]].concat(rebuild ? [[BUF.gp, GPB, nGP * 10], [BUF.puff, PUFF, nP * 12]] : [])){ gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferSubData(gl.ARRAY_BUFFER, 0, d, 0, n); }
+  }
+}
+
+/* ── demo: a made-up estate, shown only when there is no data file. It is written in exactly the shape SCHEMA.md describes,
+   so it doubles as a worked example. Readings wander, and now and then something goes wrong and recovers. */
+function demo(tick){
+  const wave = (k, base, amp) => clamp(base + amp * Math.sin(tick * 0.31 + k * 1.7) + amp * 0.5 * Math.sin(tick * 0.13 + k * 0.6), 0.02, 0.99), ph = tick % 26;
+  const nodes = [], links = [], add = (group, id, kind, weight, moons, extra) => nodes.push(Object.assign({ id, group, kind, weight, status: 'ok',
+    metrics: [{ label: 'cpu', value: wave(nodes.length, 0.34, 0.2) }, { label: 'memory', value: wave(nodes.length + 40, 0.55, 0.12) }, { label: 'disk', value: clamp(0.3 + (nodes.length * 37 % 50) / 100, 0, 0.9) }],
+    detail: { uptime: 3 + nodes.length * 7 % 90 + ' d', region: ['fra', 'nyc', 'sin'][nodes.length % 3] }, moons: moons.map(m => ({ label: m, status: 'ok' })) }, extra)), link = (from, to, kind, rate, label) => links.push({ from, to, kind, rate, label });
+  add('core', 'gateway', 'proxy', 3, ['tls', 'router', 'limiter']); add('core', 'auth', 'service', 2, ['tokens', 'sessions']);
+  add('core', 'api-1', 'service', 2.5, ['web', 'worker']); add('core', 'api-2', 'service', 2.5, ['web', 'worker']); add('core', 'api-3', 'service', 2.5, ['web', 'worker']);
+  add('core', 'queue', 'broker', 2, ['jobs', 'events', 'dead letters']); add('core', 'cache', 'cache', 1.5, ['hot keys']);
+  add('data', 'pg-primary', 'database', 4, ['wal', 'vacuum', 'backups']); add('data', 'pg-replica', 'database', 3, ['replay']);
+  add('data', 'warehouse', 'database', 3.5, ['loader', 'rollups']); add('data', 'object-store', 'storage', 3, ['buckets', 'lifecycle']); add('data', 'search', 'index', 2, ['shards']);
+  add('agents', 'planner', 'agent', 2, ['inbox', 'memory']); add('agents', 'researcher', 'agent', 1.6, ['browser', 'notes']); add('agents', 'coder', 'agent', 2.2, ['sandbox', 'tests', 'git']);
+  add('agents', 'reviewer', 'agent', 1.4, ['diffs']); add('agents', 'scribe', 'agent', 1.2, ['drafts']); add('agents', 'scheduler', 'agent', 1, ['timers']);
+  add('edge', 'edge-fra', 'edge', 1.6, ['cdn']); add('edge', 'edge-nyc', 'edge', 1.6, ['cdn']); add('edge', 'edge-sin', 'edge', 1.6, ['cdn']);
+  add('edge', 'edge-syd', 'edge', 1.2, [], { status: 'off', metrics: [], detail: { note: 'decommissioned' } });
+  add('lab', 'gpu-box', 'worker', 3, ['trainer', 'evals']); add('lab', 'notebook', 'workstation', 1.2, ['kernel']); add('lab', 'old-nas', 'storage', 1, [], { status: 'off', metrics: [], detail: {} });
+  for (const e of ['edge-fra', 'edge-nyc', 'edge-sin']) link(e, 'gateway', 'traffic', 0.8, 'requests');
+  for (const a of ['api-1', 'api-2', 'api-3']){ link('gateway', a, 'traffic', 0.7, 'requests'); link(a, 'pg-primary', 'query', 0.5, 'queries'); }
+  link('api-1', 'auth', 'call', 0.4, 'token checks'); link('api-2', 'cache', 'call', 0.6, 'lookups'); link('api-3', 'queue', 'event', 0.5, 'jobs'); link('api-2', 'search', 'query', 0.3, 'search');
+  link('pg-primary', 'pg-replica', 'replication', 0.6, 'replication'); link('pg-primary', 'warehouse', 'replication', 0.2, 'nightly load'); link('queue', 'planner', 'event', 0.5, 'tasks');
+  link('planner', 'researcher', 'task', 0.4, 'questions'); link('planner', 'coder', 'task', 0.5, 'work orders'); link('coder', 'reviewer', 'task', 0.4, 'diffs'); link('reviewer', 'scribe', 'task', 0.3, 'summaries');
+  link('scribe', 'object-store', 'write', 0.3, 'documents'); link('scheduler', 'planner', 'event', 0.2, 'timers'); link('gpu-box', 'coder', 'call', 0.3, 'completions'); link('notebook', 'warehouse', 'query', 0.2, 'analysis');
+  const at = id => nodes.find(n => n.id === id), alerts = [];
+  if (ph >= 5 && ph < 11){ const n = at('pg-replica'); n.status = 'warn'; n.problems = ['replication is ' + (ph - 4) * 40 + ' s behind the primary']; n.moons[0].status = 'warn'; links.find(l => l.to === 'pg-replica').status = 'warn'; }
+  if (ph >= 13 && ph < 19){ const n = at('api-2'); n.status = 'bad'; n.problems = ['health check failing: 5 of the last 5 probes returned 503']; n.moons[0].status = 'bad'; n.metrics[0].value = 0.97; }
+  if (ph >= 15 && ph < 21){ const n = at('edge-sin'); n.status = 'warn'; n.problems = ['p95 latency 840 ms, usually 120 ms']; }
+  if (ph >= 20 && ph < 24){ const n = at('object-store'); n.status = 'warn'; n.metrics[2].value = 0.88; n.problems = ['disk is 88% full']; }
+  if (ph >= 13 && ph < 19) alerts.push({ level: 'warn', text: 'error budget for the API is burning 6 times faster than planned' });
+  return { title: 'Demo estate', generated: Math.floor(Date.now() / 1000), groups: [{ id: 'core', label: 'Core services' }, { id: 'data', label: 'Data' }, { id: 'agents', label: 'Agents' }, { id: 'edge', label: 'Edge' }, { id: 'lab', label: 'Lab' }], nodes, links, alerts };
+}
+
+/* ── fetching: on a timer, never in a frame; stopped while the tab is hidden */
+let pollTimer = 0, polling = false, demoTick = 0;
+async function poll(){
+  if (polling) return; polling = true;
+  const first = feed.mode === 'wait';
+  try {
+    if (feed.mode === 'demo'){ feed.at = performance.now(); feed.age = 0; ingest(normalise(demo(demoTick++)), false); }
+    else {
+      let res; try { res = await fetch(CONFIG.dataUrl, { cache: 'no-store' }); } catch (e){ throw new Error('missing'); }
+      if (!res.ok) throw new Error(res.status === 404 ? 'missing' : 'HTTP ' + res.status);
+      const text = await res.text(), server = Date.parse(res.headers.get('date') || '');
+      let raw; try { raw = JSON.parse(text); } catch (e){ feed.mode = 'invalid'; feed.err = String(e.message || e); header(); polling = false; return; }
+      const m = text === feed.text ? null : normalise(raw), gen = m ? m.generated : model.generated;
+      feed.age = gen == null ? null : (isFinite(server) ? server / 1000 : Date.now() / 1000) - gen;   // how old the data is, by the server's own clock where it gives one
+      feed.mode = 'live'; feed.err = ''; feed.at = performance.now();
+      if (m){ feed.text = text; ingest(m, first); } else header();
+    }
+  } catch (e){
+    const why = String(e && e.message || e);
+    if (first && why === 'missing' && CONFIG.demoWhenMissing){ feed.mode = 'demo'; ingest(normalise(demo(demoTick++)), true); watch(true); }
+    else { feed.mode = first || feed.mode === 'none' ? 'none' : 'lost'; feed.err = why === 'missing' ? 'not found' : why; header(); }
+  }
+  polling = false;
+}
+function watch(on){ clearInterval(pollTimer); pollTimer = 0; if (on){ if (feed.mode !== 'demo' || !model.nodes.length) poll(); pollTimer = setInterval(poll, feed.mode === 'demo' ? 5000 : CONFIG.pollMs); } }
+
+/* ── words: labels, panels, readouts. Built when data or the selection changes, never in a frame.
+   Everything from the data file is escaped before it reaches the page. */
+const $ = id => document.getElementById(id), labelsBox = $('labels'), readBox = $('read'), alertBox = $('alert'), noteBox = $('note'), hint = $('hint');
+const esc = s => str(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const UN = '<b class="un" title="not in the data">—</b>', plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+const ago = s => s < 90 ? Math.round(s) + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : s < 172800 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 86400) + ' d';
+let labelSig = '', alertAt = 0, ticks = 0, touring = false, tourAt = 0;
+
+function buildLabels(){                         // rebuilt only when the names or states actually change, so focus and hover survive a refresh
+  const sig = model.nodes.map(n => n.label + '\u0001' + n.status).join('\u0002') + '\u0003' + model.groups.map(g => g.label + '\u0001' + g.members.length + g.status).join('\u0002');
+  if (sig !== labelSig){
+    labelSig = sig; labelsBox.textContent = '';
+    const make = (j, cls, html, act) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'lb ' + cls; b.innerHTML = '<i><span>' + html + '</span></i>';
+      b.firstChild.firstChild.addEventListener('click', act); b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); act(); } });
+      labelsBox.appendChild(b); LS[j] = b.style; LSI[j] = b.firstChild.style; return b;
+    };
+    model.nodes.forEach(n => {
+      const b = make(n.i, n.status, esc(n.label), () => { touched(); setPin(n.i); });
+      b.firstChild.firstChild.addEventListener('pointerenter', () => setHover(n.i)); b.firstChild.firstChild.addEventListener('pointerleave', () => setHover(-1));
+    });
+    model.groups.forEach((g, gi) => make(MAXN + gi, 'g ' + (g.status === 'bad' || g.status === 'warn' ? g.status : ''), esc(g.label) + '<small>' + plural(g.members.length, 'node') + '</small>', () => { touched(); focusGalaxy(gi); }));
+    const kids = labelsBox.children;           // widths are measured once, here, so the frame loop never has to ask
+    model.nodes.forEach(n => { LW[n.i] = kids[n.i].firstChild.firstChild.offsetWidth; });
+    model.groups.forEach((g, gi) => { LW[MAXN + gi] = kids[nN + gi].firstChild.firstChild.offsetWidth; });
+    LV.fill(0); LX.fill(-1); LY.fill(-1);
+  }
+  markSel();
+}
+function markSel(){
+  const kids = labelsBox.children;
+  for (let i = 0; i < nN && i < kids.length; i++) kids[i].classList.toggle('sel', i === pin || i === hover);
+  for (let g = 0; g < nG && nN + g < kids.length; g++) kids[nN + g].classList.toggle('sel', g === focusG && pin < 0);
+  const rows = $('groups').children; for (let g = 0; g < rows.length; g++) rows[g].firstChild.classList.toggle('sel', +rows[g].dataset.g === focusG);
+}
+
+function header(){                              // top left, the fleet panel, the alert pill, the footer note
+  const N = model.nodes, count = { ok: 0, warn: 0, bad: 0, off: 0, unknown: 0 }; N.forEach(n => { count[n.status]++; });
+  const title = CONFIG.title || model.title || NAME; $('title').textContent = title; document.title = title === NAME ? title : title + ' · ' + NAME;
+  $('total').textContent = N.length; $('totalWord').textContent = (N.length === 1 ? 'node' : 'nodes') + (model.groups.length > 1 ? ' in ' + model.groups.length + ' groups' : '');
+  $('tally').innerHTML = STATES.filter(s => count[s]).map(s => '<i class="' + s + '" style="flex:' + count[s] + '"></i>').join('');
+  $('counts').innerHTML = STATES.map(s => '<div class="' + (count[s] ? s : 'un') + '">' + count[s] + '<small>' + (s === 'warn' ? 'look' : s === 'bad' ? 'failing' : s) + '</small></div>').join('');
+  const many = model.groups.length > 1 || (model.groups[0] && model.groups[0].label);
+  $('groupsHead').style.display = $('groups').style.display = many ? '' : 'none';
+  $('groups').innerHTML = model.groups.map((g, gi) => '<li data-g="' + gi + '"><button type="button" class="' + g.status + '"><i></i><span>' + esc(g.label || 'All') + '</span><em>' + g.members.length + '</em></button></li>').join('');
+  [...$('groups').children].forEach(li => li.firstChild.addEventListener('click', () => { touched(); focusGalaxy(+li.dataset.g); }));
+  source(); banner(); say(); markSel();
+}
+function source(){                              // where the data came from and how old it is: said plainly, and never dressed up as live when it is not
+  const el = $('src'), sub = $('sub'), name = esc(CONFIG.dataUrl), age = feed.age == null ? null : feed.age + (performance.now() - feed.at) / 1000;
+  let text, cls = '', short;
+  if (feed.mode === 'live'){
+    const stale = age != null && age > CONFIG.staleAfterSec;
+    text = age == null ? 'Live from ' + name + '. It carries no "generated" time, so its age is unknown.' : stale ? name + ' is ' + ago(age) + ' old. Whatever writes it may have stopped.' : 'Live from ' + name + ', written ' + ago(Math.max(0, age)) + ' ago.';
+    cls = stale ? 'warn' : ''; short = age == null ? 'live, age unknown' : (stale ? 'stale: ' : 'data ') + ago(Math.max(0, age)) + ' old';
+  } else if (feed.mode === 'demo'){ text = 'Demo data, made up. Put a ' + name + ' beside this page to show your own.'; short = 'demo data'; cls = 'warn'; }
+  else if (feed.mode === 'lost'){ text = name + ' is unreachable (' + esc(feed.err) + '). Showing what was last read.'; short = 'data unreachable'; cls = 'bad'; }
+  else if (feed.mode === 'invalid'){ text = name + ' is not valid JSON: ' + esc(feed.err) + '. Nothing new is shown until it is fixed.'; short = 'data file is broken'; cls = 'bad'; }
+  else if (feed.mode === 'none'){ text = feed.err === 'not found' ? 'No ' + name + ' beside this page.' : name + ' could not be read (' + esc(feed.err) + ').'; short = 'no data'; cls = 'bad'; }
+  else { text = 'Reading ' + name + '…'; short = 'waiting for data'; }
+  el.innerHTML = text; el.className = cls; sub.textContent = short; sub.className = cls;
+}
+function banner(){                              // the most pressing alert; with several, they take turns
+  const urgent = model.alerts.filter(a => a.level !== 'info'), list = urgent.length ? urgent : model.alerts;   // plain notices get the pill only when nothing more pressing wants it
+  if (!list.length){ alertBox.className = ''; return; }
+  const a = list[alertAt % list.length];
+  alertBox.className = 'on ' + (a.level === 'bad' ? '' : a.level); alertBox.dataset.node = a.node ? a.node.i : -1; alertBox.style.cursor = a.node ? 'pointer' : 'default';
+  $('alertWho').textContent = a.node ? a.node.label : 'Estate'; $('alertText').textContent = a.text; $('alertN').textContent = list.length > 1 ? alertAt % list.length + 1 + '/' + list.length : '';
+}
+function say(){
+  const state = !gl ? 'Flat picture: this browser gave no WebGL2.'
+    : still ? (PREF.chosen ? 'Motion is off.' : 'Motion is off because this system asks for reduced motion. Pick a speed under Motion to turn it on.')
+    : !running && !document.hidden ? 'Paused while this window is not in focus.'
+    : PREF.detail === 'auto' && autoScale < 1 ? 'Drawn at ' + autoScale * 100 + '% resolution to spare this GPU. Detail sets it by hand.' : '';
+  noteBox.textContent = [state].concat(model.notes).filter(Boolean).join(' · ');
+}
+
+const tag = s => '<span class="tag ' + s + '">' + WORD[s] + '</span>', dot = s => '<i class="dot ' + s + '"></i>';
+function readout(){                             // the left panel: the star under the pointer, else the pinned one, else the galaxy in focus
+  const i = hover >= 0 ? hover : pin, n = i >= 0 ? model.nodes[i] : null, g = !n && focusG >= 0 ? model.groups[focusG] : null;
+  if (!n && !g){ readBox.classList.remove('on'); return; }
+  let h = '<button type="button" class="close" aria-label="Close">×</button>';
+  if (n){
+    const grp = model.groups[n.g];
+    h += '<h2>' + esc(n.label) + ' ' + tag(n.status) + '</h2><p class="sub">' + [n.kind, grp && grp.label ? 'in ' + grp.label : '', n.status === 'unknown' && n.stated ? 'state given as "' + n.stated + '"' : ''].filter(Boolean).map(esc).join(' · ') + '</p>';
+    n.problems.forEach(p => { h += '<p class="prob ' + (n.status === 'bad' ? '' : 'warn') + '">' + esc(p) + '</p>'; });
+    if (n.metrics.length){ h += '<h3>Readings</h3>'; n.metrics.forEach(m => { h += '<div class="row"><span>' + esc(m.label) + '</span>' + (m.text == null ? UN : '<b>' + esc(m.text) + '</b>') + '</div>' + (m.share == null ? '' : '<div class="bar ' + (m.level === 'bad' ? 'b' : m.level === 'warn' ? 'w' : '') + '"><i style="width:' + (m.share * 100).toFixed(1) + '%"></i></div>'); }); }
+    if (n.rows.length){ h += '<h3>Details</h3>'; n.rows.forEach(r => { h += '<div class="row"><span>' + esc(r[0]) + '</span>' + (r[1] == null ? UN : '<b>' + esc(r[1]) + '</b>') + '</div>'; }); }
+    if (n.moons.length){ h += '<h3>Parts</h3><ul class="list">' + n.moons.map(m => '<li>' + dot(m.status) + '<span>' + esc(m.label) + '</span><em>' + esc(m.text || (m.status === 'ok' || m.status === 'unknown' ? '' : WORD[m.status])) + '</em></li>').join('') + '</ul>'; }
+    const out = model.links.filter(l => l.a === i), inn = model.links.filter(l => l.b === i);
+    if (out.length + inn.length){ h += '<h3>Links</h3><ul class="list">' + out.map(l => '<li><em>to</em><span><button type="button" data-n="' + l.b + '">' + esc(model.nodes[l.b].label) + '</button> ' + esc(l.label) + '</span></li>').join('')
+      + inn.map(l => '<li><em>from</em><span><button type="button" data-n="' + l.a + '">' + esc(model.nodes[l.a].label) + '</button> ' + esc(l.label) + '</span></li>').join('') + '</ul>'; }
+    if (!n.metrics.length && !n.rows.length && !n.moons.length && !n.problems.length) h += '<p class="sub" style="margin-top:8px">The data file says nothing more about it.</p>';
+  } else {
+    h += '<h2>' + esc(g.label || 'All nodes') + ' ' + tag(g.status) + '</h2><p class="sub">' + plural(g.members.length, 'node') + '</p><ul class="list" style="margin-top:8px">'
+      + g.members.map(m => '<li>' + dot(m.status) + '<span><button type="button" data-n="' + m.i + '">' + esc(m.label) + '</button></span><em>' + (m.status === 'ok' ? '' : WORD[m.status]) + '</em></li>').join('') + '</ul>';
+  }
+  readBox.innerHTML = h; readBox.classList.add('on');
+  readBox.querySelector('.close').addEventListener('click', back);
+  readBox.querySelectorAll('button[data-n]').forEach(b => b.addEventListener('click', () => { touched(); setPin(+b.dataset.n); }));
+}
+function showRead(){ readout(); markSel(); }
+function setHover(i){ if (i === hover) return; hover = i; if (i >= 0) S[IDLE] = 0; canvas.classList.toggle('pt', i >= 0); showRead(); once(); }
+function setPin(i){                             // pin a star: the camera flies to it and stays on it as it moves
+  if (i < 0 || i >= nN) return; pin = i; focusG = model.nodes[i].g; S[GRAD] = clamp(PN[i * 4 + 3] * 30, 5, 13); S[ZOOMED] = 0; showRead(); once();
+}
+function focusGalaxy(g){ if (g < 0 || g >= nG) return; pin = -1; focusG = g; S[GRAD] = GALT[g * 4 + 3] * 3.4; S[ZOOMED] = 0; showRead(); once(); }
+function goHome(){ pin = -1; focusG = -1; S[GRAD] = S[HOMER]; S[ZOOMED] = 0; showRead(); once(); }
+function back(){ if (pin >= 0 && nG > 1) focusGalaxy(model.nodes[pin].g); else goHome(); }   // one step out: star, its galaxy, the whole sky
+
+/* ── pointer, wheel, keys */
+function pick(mx, my){
+  let best = -1, bw = 1e9;
+  for (let i = 0; i < nN; i++){
+    const o = i * 4, w = SCR[o + 3]; if (w <= 0.2) continue;
+    const dx = SCR[o] - mx, dy = SCR[o + 1] - my, r = Math.max(SCR[o + 2] * 1.4 + 6, 13);
+    if (dx * dx + dy * dy < r * r && w < bw){ bw = w; best = i; }
+  }
+  return best;
+}
+function pickGalaxy(mx, my){
+  for (let g = 0; g < nG; g++){ const o = g * 4, dx = GSCR[o] - mx, dy = GSCR[o + 1] - my, r = Math.max(16, GSCR[o + 2] * 0.3); if (GSCR[o + 3] > 0.2 && dx * dx + dy * dy < r * r) return g; }
+  return -1;
+}
+let lastX = 0, lastY = 0, moved = 0;
+function touched(){ S[IDLE] = 0; touring = false; tourAt = 0; hint.style.opacity = '0'; }
+canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); drag = 1; moved = 0; lastX = e.clientX; lastY = e.clientY; S[VTH] = S[VPH] = 0; touched(); });
+canvas.addEventListener('pointermove', e => {
+  if (!drag){ setHover(pick(e.clientX, e.clientY)); return; }
+  const dx = e.clientX - lastX, dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+  S[TH] -= dx * 0.005; S[PH] -= dy * 0.005; S[VTH] = -dx * 0.005; S[VPH] = -dy * 0.005; touched(); once();
+});
+canvas.addEventListener('pointerup', e => {
+  drag = 0; if (moved >= 5) return;
+  const i = pick(e.clientX, e.clientY), g = i < 0 ? pickGalaxy(e.clientX, e.clientY) : -1;
+  if (i >= 0) setPin(i); else if (g >= 0) focusGalaxy(g); else if (pin >= 0){ pin = -1; showRead(); once(); }   // a click on empty sky lets go of the pinned star
+});
+canvas.addEventListener('pointercancel', () => { drag = 0; });
+canvas.addEventListener('pointerleave', () => { if (!drag) setHover(-1); });
+canvas.addEventListener('wheel', e => { e.preventDefault(); S[GRAD] = clamp(S[GRAD] * Math.exp(e.deltaY * 0.0012), 3.5, 160); S[ZOOMED] = 1; touched(); once(); }, { passive: false });
+addEventListener('keydown', e => {
+  const k = e.key;
+  if (k === 'Escape'){ const a = document.activeElement; if (a && a.blur) a.blur(); setHover(-1); back(); }
+  else if (k === 'Home' || k === 'h') goHome();
+  else if (k === 'ArrowLeft') S[TH] -= 0.12; else if (k === 'ArrowRight') S[TH] += 0.12;
+  else if (k === 'ArrowUp') S[PH] -= 0.08; else if (k === 'ArrowDown') S[PH] += 0.08;
+  else if (k === '+' || k === '=') S[GRAD] = clamp(S[GRAD] * 0.85, 3.5, 160); else if (k === '-') S[GRAD] = clamp(S[GRAD] / 0.85, 3.5, 160);
+  else return;
+  if (k === '+' || k === '=' || k === '-') S[ZOOMED] = 1;
+  touched(); once();
+});
+alertBox.addEventListener('click', () => { const i = +alertBox.dataset.node; if (i >= 0){ touched(); setPin(i); } });
+$('home').addEventListener('click', () => { touched(); goHome(); });
+$('full').addEventListener('click', () => { try { (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}); } catch (e){} });
+
+/* ── once a second, outside the frame loop: the clock, the data's age, whose turn the alert pill is, and the tour */
+function tick(){
+  ticks++;
+  $('clock').textContent = new Date().toLocaleTimeString([], { hour12: false });
+  if (document.hidden) return;
+  source();
+  if (ticks % 5 === 0){ alertAt++; banner(); }
+  if (CONFIG.events && PREF.events === 'on' && running && bakeAt >= BAKED && --evWait <= 0){   // time for something to happen in the sky: never the same thing twice running
+    let k = 1 + Math.floor(Math.random() * 7); if (k === lastEv) k = k % 7 + 1;
+    if (spawn(k)){ lastEv = k; evWait = Math.round((CONFIG.eventEverySec[0] + Math.random() * (CONFIG.eventEverySec[1] - CONFIG.eventEverySec[0])) / speed); } else evWait = 3;
+  }
+  // The tour: left alone for a while, the camera visits what is failing, then each galaxy, then the whole sky, and round again
+  if (!CONFIG.tour || !running || drag || hover >= 0 || S[IDLE] < 20 || (!touring && (pin >= 0 || S[ZOOMED]))) return;
+  if (++tourAt % CONFIG.tourEverySec !== 1) return;
+  const stops = [[-1, -1]]; model.nodes.filter(n => n.status === 'bad').slice(0, 3).forEach(n => stops.push([n.i, -1])); if (nG > 1) model.groups.forEach((g, gi) => stops.push([-1, gi]));
+  if (stops.length < 2) return;
+  const s = stops[Math.floor(tourAt / CONFIG.tourEverySec) % stops.length]; touring = true;
+  if (s[0] >= 0) setPin(s[0]); else if (s[1] >= 0) focusGalaxy(s[1]); else goHome();
+}
+
+/* ── size and visibility */
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2) * scale;
+  W = Math.max(1, canvas.clientWidth); H = Math.max(1, canvas.clientHeight);
+  const over = W * H * DPR * DPR / D.px; if (over > 1) DPR /= Math.sqrt(over);   // a ceiling on pixels, whatever the screen: a 4K panel does not get four times the work of a 1080p one
+  const w = Math.round(W * DPR), h = Math.round(H * DPR);
+  if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+  if (gl){ gl.viewport(0, 0, w, h); sizeBack(); }
+  TX.length = TY.length = 0;                   // every label position this size can need, so the frame loop never builds a string
+  for (let i = 0; i <= w + 1; i++) TX.push('translateX(' + (i / DPR).toFixed(2) + 'px)');
+  for (let i = 0; i <= h + 1; i++) TY.push('translateY(' + (i / DPR).toFixed(2) + 'px)');
+  LX.fill(-1); LY.fill(-1);
+  const home = S[GRAD] === S[HOMER]; S[HOMER] = clamp(extent * (0.8 + Math.min(0.1, nG * 0.004)) / (Math.tan(FOV / 2) * Math.min(1, W / H * 0.72)), 7, 180); if (home) S[GRAD] = S[HOMER];
+  once();
+}
+let sizeTimer = 0;
+const resized = () => { clearTimeout(sizeTimer); sizeTimer = setTimeout(resize, 120); };
+addEventListener('resize', resized);
+if (window.ResizeObserver) new ResizeObserver(resized).observe(canvas);
+document.addEventListener('visibilitychange', () => { if (document.hidden){ stop(); watch(false); } else { watch(true); start(); } });   // hidden: no frames, no fetches
+if (CONFIG.pauseOnBlur){ addEventListener('blur', stop); addEventListener('focus', start); }
+motionOff.addEventListener('change', () => { if (!PREF.chosen){ PREF.motion = motionOff.matches ? 'off' : 'normal'; showPrefs(); applyMotion(); } });   // follow the system until the viewer has chosen for themselves
+
+/* ── the viewer's choices: motion, detail, sky events. Kept in this browser only; without storage they simply last until the page is closed */
+function loadPrefs(){
+  try { const p = JSON.parse(localStorage.getItem('deepfield.view') || '{}'); for (const k of ['motion', 'detail', 'events', 'clouds', 'planet', 'remnant']) if (typeof p[k] === 'string') PREF[k] = p[k]; PREF.chosen = p.chosen === true; } catch (e){}
+  if (!Object.prototype.hasOwnProperty.call(CLOUDS, PREF.clouds)) PREF.clouds = 'normal';
+  if (!['off', 'slow', 'normal', 'fast'].includes(PREF.motion)) PREF.motion = 'normal';
+  if (PREF.detail !== 'auto' && !Object.prototype.hasOwnProperty.call(DETAIL, PREF.detail)) PREF.detail = 'auto';
+  if (PREF.events !== 'off') PREF.events = 'on';
+  if (PREF.planet !== 'off') PREF.planet = 'on'; if (PREF.remnant !== 'off') PREF.remnant = 'on';
+  if (!PREF.chosen) PREF.motion = motionOff.matches ? 'off' : 'normal';   // nobody has chosen yet: a system that asks for reduced motion gets a still picture, and a note saying how to change that
+}
+function showPrefs(){
+  for (const k of ['motion', 'detail', 'clouds', 'events']) for (const b of $(k).querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.v === PREF[k]);
+  for (const b of $('scenery').querySelectorAll('button')) b.setAttribute('aria-pressed', PREF[b.dataset.k] === 'on');   // these two are switches: lit means shown
+  $('scenery').hidden = !CONFIG.scenery;
+}
+function clearEvents(){ EVK.fill(0); EVS[0] = EVS[2] = -1e9; $('evt').textContent = ''; evWait = 6; }
+function applyMotion(){
+  still = PREF.motion === 'off'; speed = PREF.motion === 'slow' ? 0.4 : PREF.motion === 'fast' ? 2.2 : 1;
+  if (still){ clearEvents(); stop(); } else start();
+  say(); once();
+}
+function applyDetail(){
+  D = DETAIL[PREF.detail] || DETAIL.auto; scale = PREF.detail === 'auto' ? autoScale : D.res;
+  document.body.classList.toggle('lite', !D.blur || (PREF.detail === 'auto' && autoScale < 1));
+  if (gl) sizeSky();
+  fill(); resize(); say();
+}
+for (const k of ['motion', 'detail', 'clouds', 'events']) $(k).addEventListener('click', e => {
+  const v = e.target.dataset ? e.target.dataset.v : null; if (!v) return;
+  PREF[k] = v; if (k === 'motion') PREF.chosen = true;
+  try { localStorage.setItem('deepfield.view', JSON.stringify(PREF)); } catch (err){}
+  showPrefs(); touched();
+  if (k === 'motion') applyMotion(); else if (k === 'detail') applyDetail(); else if (k === 'events'){ clearEvents(); once(); } else once();
+});
+$('scenery').addEventListener('click', e => {                     // the planet and the supernova each have a switch of their own
+  const k = e.target.dataset ? e.target.dataset.k : null; if (!k) return;
+  PREF[k] = PREF[k] === 'on' ? 'off' : 'on';
+  try { localStorage.setItem('deepfield.view', JSON.stringify(PREF)); } catch (err){}
+  showPrefs(); touched(); packScenery(); once();
+});
+
+/* ── far scenery: a ringed giant and a supernova remnant, fixed in space far behind everything, where the opening view has them in its background.
+   Nothing to do with the data. The remnant is the one place warm colour appears that is not a warning: it is far off, it is huge, and it never pulses. */
+function placeScenery(){
+  if (!CONFIG.scenery || !gl){ nSC = 0; return; }
+  const sp = Math.sin(PH0), f = [-sp * Math.sin(TH0), -Math.cos(PH0), -sp * Math.cos(TH0)], x = [Math.cos(TH0), 0, -Math.sin(TH0)], th = Math.tan(FOV / 2), asp = 1.6;   // the opening view's own axes: forward, right,
+  const y = [f[2] * x[1] - f[1] * x[2], f[0] * x[2] - f[2] * x[0], f[1] * x[0] - f[0] * x[1]], cam = f.map(v => -v * S[HOMER]);                                       // and up; and where the camera stands
+  const at = (d, sx, sy) => [0, 1, 2].map(k => cam[k] + (f[k] + (x[k] * sx * asp + y[k] * sy) * th) * d);   // a point that far off, at (sx, sy) across that view
+  const seen = [];                              // where each galaxy falls in that view, and how wide
+  for (let g = 0; g < nG; g++){ const v = [0, 1, 2].map(k => GALT[g * 4 + k] - cam[k]), d = v[0] * f[0] + v[1] * f[1] + v[2] * f[2]; if (d > 1) seen.push([(v[0] * x[0] + v[1] * x[1] + v[2] * x[2]) / (d * th * asp), (v[0] * y[0] + v[1] * y[1] + v[2] * y[2]) / (d * th), GALT[g * 4 + 3] / (d * th)]); }
+  const clear = s => seen.reduce((m, g) => Math.min(m, Math.hypot((s[0] - g[0]) * asp, s[1] - g[1]) - g[2]), 9);
+  const spots = [[-0.72, 0.4], [-0.8, -0.5], [0.8, -0.5], [0.02, -0.66], [0.12, 0.62], [-0.3, 0.7], [-0.86, -0.05]].sort((p, q) => clear(q) - clear(p));   // the corners and edges, clearest first
+  const far = Math.max(190, S[HOMER] * 3), k = far / 190;        // always well behind the estate, however large it is, and the same size on screen
+  const a = spots[0], b = spots.find(s => Math.hypot(s[0] - a[0], s[1] - a[1]) > 0.9) || spots[1], pa = at(far, a[0], a[1]), pb = at(far * 0.8, b[0], b[1]);
+  scPlace = [pa[0], pa[1], pa[2], 38 * k, pb[0], pb[1], pb[2], 34 * k];   // kept, so switching one off and on again never moves the other
+  packScenery();
+}
+let scPlace = null;
+function packScenery(){                         // send whichever of the two the viewer has left switched on
+  nSC = 0; if (!CONFIG.scenery || !gl || !scPlace) return;
+  const p = scPlace;
+  if (PREF.remnant === 'on') SCN.set([p[0], p[1], p[2], p[3], 7, 0, 0.4, 0, 0, 0, 0, 0, 1, 1, 1, 0.75], nSC++ * 16);
+  if (PREF.planet === 'on') SCN.set([p[4], p[5], p[6], p[7], 6, 0, 0.3, 0, 0, 0, 0, 0, 1, 1, 1, 1], nSC++ * 16);
+  if (nSC){ gl.bindBuffer(gl.ARRAY_BUFFER, BUF.scn); gl.bufferSubData(gl.ARRAY_BUFFER, 0, SCN); }
+}
+
+/* ── sky events: scenery that comes and goes. Placed where the camera is looking at the moment they begin. None of it is data, and none of it uses the colours that mean trouble. */
+const EVENTS = ['', 'a black hole', 'a supernova', 'a pulsar', 'jets from a galaxy\'s core', 'a great comet', 'a meteor shower', 'a storm in the nebula'];
+let evWait = 7, lastEv = 0, evtTimer = 0;
+function spawn(kind){
+  const t = S[CLOCK], r = S[RAD], th = Math.tan(FOV / 2), asp = W / H, rnd = Math.random;
+  const fx = -VIEW[2], fy = -VIEW[6], fz = -VIEW[10], cx = S[CX] - fx * r, cy = S[CY] - fy * r, cz = S[CZ] - fz * r;   // which way the camera looks, and where it is
+  const at = (depth, sx, sy) => [cx + (fx + (VIEW[0] * sx * asp + VIEW[1] * sy) * th) * depth, cy + (fy + (VIEW[4] * sx * asp + VIEW[5] * sy) * th) * depth, cz + (fz + (VIEW[8] * sx * asp + VIEW[9] * sy) * th) * depth];   // a point that far off, at (sx, sy) across the view, each from −1 to 1
+  const spot = (wx, wy) => {                                      // somewhere in view that is not on top of a galaxy, so an event is never mistaken for one acting up
+    for (let k = 0; k < 40; k++){
+      const sx = (rnd() - 0.5) * wx, sy = (rnd() - 0.5) * wy, x = (sx * 0.5 + 0.5) * W, y = (0.5 - sy * 0.5) * H; let ok = true;
+      for (let g = 0; g < nG; g++) if (GSCR[g * 4 + 3] > 0.2 && Math.hypot(x - GSCR[g * 4], y - GSCR[g * 4 + 1]) < GSCR[g * 4 + 2] * 0.9 + 110) ok = false;
+      if (ok) return [sx, sy];
+    }
+    return null;
+  };
+  let life, row = null;
+  if (kind === 6){ life = 6; EVS[0] = t; EVS[1] = life; UEV[2] = rnd() * 100; UEVP.set(at(r * 0.85, (rnd() - 0.5) * 0.9, 0.7 + rnd() * 0.35)); }   // a shower: it rains from one point above the galaxies
+  else if (kind === 7){ life = 7; const p = at(1, (rnd() - 0.5) * 1.2, rnd() - 0.5); USTORM[0] = p[0] - cx; USTORM[1] = p[1] - cy; USTORM[2] = p[2] - cz; const l = Math.hypot(USTORM[0], USTORM[1], USTORM[2]); USTORM[0] /= l; USTORM[1] /= l; USTORM[2] /= l; EVS[2] = t; EVS[3] = life; }   // a storm: a patch of the sky's gas flashes
+  else {
+    const e = EVK.indexOf(0); if (e < 0) return false;
+    if (kind < 4){                                                // a black hole, a supernova or a pulsar: each needs a clear patch of sky
+      const s = spot(1.5, 1.3); if (!s) return false;
+      if (kind === 1){ const p = at(r * (0.75 + 0.3 * rnd()), s[0], s[1]); life = 17; row = [p[0], p[1], p[2], clamp(r * 0.1, 1.4, 5), 1, 0, rnd(), 0, 0, 0, 0, 0, 0.68, 0.8, 1, 1]; }   // a black hole opens among the galaxies
+      else if (kind === 2){ const d = r * 2 + 30, p = at(d, s[0], s[1]), c = rnd() < 0.5 ? [0.6, 0.85, 1] : [0.8, 0.7, 1]; life = 7; row = [p[0], p[1], p[2], d * 0.22, 2, 0, rnd(), 0, 0, 0, 0, 0, c[0], c[1], c[2], 1]; }   // a supernova, far behind everything
+      else { const d = r * 1.5, p = at(d, s[0], s[1]); life = 14; row = [p[0], p[1], p[2], d * 0.19, 3, 0, rnd(), 0, 0, 0, 0, 0, 0.6, 0.9, 1, 1]; }   // a pulsar, out past the galaxies
+    }
+    else if (kind === 4){ if (!nG) return false; life = 10; row = [0, 0, 0, 1, 4, 0, rnd(), 0, 0, 0, 0, Math.floor(rnd() * nG), 0.78, 0.62, 1, 1]; }   // jets, from one galaxy's core
+    else { const d = r * (0.5 + 0.25 * rnd()), s = rnd() < 0.5 ? -1 : 1, a = at(d, -1.3 * s, 0.25 + 0.6 * rnd()), b = at(d * 1.15, 1.3 * s, -0.75 + 0.6 * rnd()); life = 3.6; row = [a[0], a[1], a[2], d * 0.3, 5, 0, rnd(), 0, b[0], b[1], b[2], 0, 0.45, 0.85, 1, 1]; }   // a great comet, right across the view
+    EV.set(row, e * 16); EVT[e * 2] = t; EVT[e * 2 + 1] = life; EVK[e] = kind;
+  }
+  $('evt').textContent = 'Sky event: ' + EVENTS[kind]; clearTimeout(evtTimer); evtTimer = setTimeout(() => { $('evt').textContent = ''; }, life * 1000 / speed + 400);
+  return true;
+}
+
+/* ── boot: the sky is drawn at once; the stars arrive with the first read of the data file */
+loadPrefs(); showPrefs();
+try { if (!initGL()) gl = null; } catch (e){ console.error(e); gl = null; }
+if (!gl) g2 = canvas.getContext('2d');
+placeScenery(); applyDetail(); applyMotion(); header(); tick(); setInterval(tick, 1000);
+if (!document.hidden) watch(true);
+start(); once();
+</script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+{
+  "title": "Home lab",
+  "generated": "2026-11-22T18:30:00Z",
+  "groups": [
+    { "id": "hypervisor", "label": "Hypervisor" },
+    { "id": "storage", "label": "Storage" },
+    { "id": "agents", "label": "Agents" }
+  ],
+  "nodes": [
+    {
+      "id": "pve-1",
+      "label": "pve-1",
+      "group": "hypervisor",
+      "kind": "hypervisor",
+      "status": "ok",
+      "weight": 4,
+      "metrics": [
+        { "label": "cpu", "value": 0.31 },
+        { "label": "memory", "value": 41.5, "max": 64, "text": "41.5 of 64 GB" },
+        { "label": "disk", "value": 0.63 },
+        { "label": "temperature", "text": "52 °C" }
+      ],
+      "detail": { "uptime": "38 d", "kernel": "6.8" },
+      "moons": [
+        { "label": "pveproxy", "status": "ok" },
+        { "label": "backup job", "status": "ok", "text": "last run 03:00" }
+      ]
+    },
+    {
+      "id": "web-vm",
+      "group": "hypervisor",
+      "kind": "vm",
+      "status": "ok",
+      "weight": 2,
+      "metrics": { "cpu": 0.12, "memory": 0.48, "disk": 0.37 },
+      "moons": ["nginx", "certbot"]
+    },
+    {
+      "id": "build-vm",
+      "group": "hypervisor",
+      "kind": "vm",
+      "status": "warn",
+      "weight": 2,
+      "metrics": { "cpu": 0.74, "memory": 0.66, "disk": 0.91 },
+      "problems": ["disk / is 91% full"],
+      "moons": [
+        { "label": "runner", "status": "ok" },
+        { "label": "cache", "status": "warn", "text": "38 GB" }
+      ]
+    },
+    {
+      "id": "nas",
+      "group": "storage",
+      "kind": "storage",
+      "status": "ok",
+      "weight": 3,
+      "metrics": [
+        { "label": "pool", "value": 5.2, "max": 12, "text": "5.2 of 12 TB" },
+        { "label": "scrub", "text": "clean, 6 days ago" }
+      ],
+      "moons": [
+        { "label": "disk 1", "status": "ok" },
+        { "label": "disk 2", "status": "ok" },
+        { "label": "disk 3", "status": "ok" },
+        { "label": "disk 4", "status": "ok" }
+      ]
+    },
+    {
+      "id": "offsite",
+      "label": "offsite backup",
+      "group": "storage",
+      "kind": "remote",
+      "status": "bad",
+      "problems": ["last successful sync was 3 days ago"]
+    },
+    {
+      "id": "planner",
+      "group": "agents",
+      "kind": "agent",
+      "status": "ok",
+      "metrics": [{ "label": "queue", "text": "4 tasks" }],
+      "moons": ["inbox", "memory"]
+    },
+    {
+      "id": "coder",
+      "group": "agents",
+      "kind": "agent",
+      "status": "ok",
+      "weight": 1.5,
+      "metrics": [{ "label": "context", "value": 0.42 }],
+      "moons": ["sandbox", "tests"]
+    },
+    {
+      "id": "old-laptop",
+      "kind": "workstation",
+      "status": "off",
+      "detail": { "last seen": "2026-10-02" }
+    },
+    {
+      "id": "printer"
+    }
+  ],
+  "links": [
+    { "from": "pve-1", "to": "nas", "label": "nightly backups", "kind": "backup", "rate": 0.3 },
+    { "from": "nas", "to": "offsite", "label": "offsite sync", "kind": "backup", "rate": 0.2, "status": "bad" },
+    { "from": "web-vm", "to": "nas", "label": "media", "kind": "nfs", "rate": 0.5 },
+    { "from": "planner", "to": "coder", "label": "work orders", "kind": "task", "rate": 0.6 },
+    { "from": "coder", "to": "build-vm", "label": "builds", "kind": "task", "rate": 0.5 }
+  ],
+  "alerts": [
+    { "level": "info", "text": "kernel update available on pve-1" }
+  ]
+}

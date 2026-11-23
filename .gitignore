@@ -1,0 +1,5 @@
+# Your own data stays out of the repository
+deepfield.json
+*.tmp
+parts/
+.DS_Store
