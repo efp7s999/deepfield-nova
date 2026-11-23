@@ -221,6 +221,10 @@ adapters/                markdown-vault.mjs, local-machine.mjs
 tools/                   validate.mjs, merge.mjs
 ```
 
+## Credits
+
+The code, shaders and documentation here were written by [Claude](https://claude.com), Anthropic's AI model.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
