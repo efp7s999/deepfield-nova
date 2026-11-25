@@ -72,6 +72,7 @@ h1,h2,h3,p{margin:0}
 #groups span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
 #groups em{font:normal 12px var(--mono);color:var(--dim)}
 #src{margin-top:10px;padding-top:8px;border-top:1px solid var(--edge);font-size:12px;color:var(--dim)}
+#src button{display:block;margin-top:7px;padding:0;color:var(--ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 
 /* the readout: rows of name and value; a metric also gets a bar, but only if it was measured */
 .row{display:flex;flex-wrap:wrap;justify-content:space-between;column-gap:12px;color:var(--dim)}
@@ -170,6 +171,8 @@ const CONFIG = {
   pollMs: 10000,              // how often to fetch it
   title: '',                  // shown top left; leave empty to use the data file's own "title"
   demoWhenMissing: true,      // no data file on the first try: show a made-up estate, clearly marked, instead of an empty sky
+  demo: 'estate',             // which made-up data that is: 'estate' (servers and agents) or 'notes' (a vault of linked notes). Adding ?demo=notes to the address picks the second
+  layout: '',                 // how stars are placed in a galaxy. Empty: as the data file asks ("layout" in SCHEMA.md). 'arms': strung along spiral arms. 'web': gathered round the hubs they link to
   tour: true,                 // left alone for a while, the camera visits each galaxy in turn (good for a wall display)
   tourEverySec: 16,
   pauseOnBlur: false,         // true: stop drawing whenever the window loses focus, not only when the tab is hidden
@@ -665,7 +668,7 @@ const GB = new Float32Array(MAXG * 6), GU = new Float32Array(MAXG * 3), GV = new
 const UT = new Float32Array(2), UCAM = new Float32Array(4), UVIEW = new Float32Array(2), UX = new Float32Array(4), USKY = new Float32Array(4), UROT = new Float32Array(4);
 const PAL = [hex('#b03cff'), hex('#1f8fff'), hex('#ff8fb8')], UPA = new Float32Array(PAL[0]), UPB = new Float32Array(PAL[1]), UPC = new Float32Array(PAL[2]);   // the sky's gases, and where they meet
 const ML = MAXN + MAXG;                        // labels: one a star, then one a galaxy
-const LORD = new Uint16Array(MAXN), LMUST = new Uint8Array(MAXN), LV = new Uint8Array(ML), LX = new Int32Array(ML), LY = new Int32Array(ML), LW = new Float32Array(ML), GSHOW = new Uint8Array(MAXG);
+const LORD = new Uint16Array(MAXN), LMUST = new Uint8Array(MAXN), LHUB = new Uint8Array(MAXN), LV = new Uint8Array(ML), LX = new Int32Array(ML), LY = new Int32Array(ML), LW = new Float32Array(ML), GSHOW = new Uint8Array(MAXG);
 const BOX = new Float32Array((MAXN + ML + 2) * 4), OWN = new Int16Array(MAXN + ML + 2);
 const LS = [], LSI = [], TX = [], TY = [];     // label styles; every translate string this window size can need
 let W = 1, H = 1, DPR = 1, nN = 0, nG = 0, nL = 0, nS = 0, nP = 0, nGP = 0, hover = -1, pin = -1, focusG = -1, drag = 0, extent = 12;
@@ -920,10 +923,11 @@ function draw(){
   gl.bindVertexArray(VA.node); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nN + nG); gl.blendFunc(gl.ONE, gl.ONE);
   if (timed){ gl.endQuery(tqx.TIME_ELAPSED_EXT); tqOn = true; }
 }
-function taken(x0, y0, x1, y1, n, self){       // does this rectangle meet one already claimed this frame (other than its own star)?
-  for (let j = 0; j < n; j++){ const q = j * 4; if (OWN[j] !== self && x0 < BOX[q + 2] && x1 > BOX[q] && y0 < BOX[q + 3] && y1 > BOX[q + 1]) return true; }
+function hit(x0, y0, x1, y1, a, b, self){       // does this rectangle meet one of the claims numbered a to b (other than its own star's)?
+  for (let j = a; j < b; j++){ const q = j * 4; if (OWN[j] !== self && x0 < BOX[q + 2] && x1 > BOX[q] && y0 < BOX[q + 3] && y1 > BOX[q + 1]) return true; }
   return false;
 }
+function taken(x0, y0, x1, y1, n, self){ return hit(x0, y0, x1, y1, 0, n, self); }   // …or any claim made so far this frame
 function claim(j, x0, y0, x1, y1, self){ const q = j * 4; BOX[q] = x0; BOX[q + 1] = y0; BOX[q + 2] = x1; BOX[q + 3] = y1; OWN[j] = self; }
 function setLabel(j, vis, x, y){               // transform only, from strings built ahead of time; nothing is measured here
   if (vis !== LV[j]){ LV[j] = vis; LS[j].visibility = vis ? 'visible' : 'hidden'; LS[j].willChange = LSI[j].willChange = vis ? 'transform' : 'auto'; }   // a layer of its own only while it is on show: hundreds of hidden ones would each cost the browser one
@@ -940,13 +944,18 @@ function placeLabels(){
     if (vis) claim(used++, x - hw, y, x + hw, y + 36, -1);
     setLabel(j, vis, x, y);
   }
+  const gEnd = used;
   for (let i = 0; i < nN; i++){ const o = i * 4; if (SCR[o + 3] > 0.2){ const r = SCR[o + 2] * 1.5; claim(used++, SCR[o] - r, SCR[o + 1] - r, SCR[o] + r, SCR[o + 1] + r, i); } }   // stars claim their own space
+  const sEnd = used;                            // claims before gEnd are galaxy names, up to sEnd stars, after it star names
   for (let k = 0; k < nN; k++){                // star names, most pressing first: failing and pinned ones always, the rest while they are large enough and there is room
-    const i = LORD[k], o = i * 4, held = i === hover || i === pin, must = held || LMUST[i], hw = LW[i] * 0.5 + 4, r = SCR[o + 2];
+    const i = LORD[k], o = i * 4, held = i === hover || i === pin, must = held || LMUST[i], hub = LHUB[i], hw = LW[i] * 0.5 + 4, r = SCR[o + 2];   // hub: a note with a burst of its own notes round it, in the linked-notes layout
     let vis = 0, x = SCR[o], y = SCR[o + 1] + r * (LMUST[i] ? 2.7 : 1.7) + 5;   // a troubled star's name sits clear of its rings
-    if (SCR[o + 3] > 0.2 && (must || (r >= 4.2 && shown < D.labels)) && x > -60 && x < W + 60 && y > 0 && y < H){
+    if (SCR[o + 3] > 0.2 && (must || ((r >= 4.2 || (hub && r >= 2.8)) && shown < D.labels)) && x > -60 && x < W + 60 && y > 0 && y < H){
       vis = 1;
-      if (taken(x - hw, y, x + hw, y + 17, used, i)){ y = SCR[o + 1] - r * 1.7 - 22; if (taken(x - hw, y, x + hw, y + 17, used, i) && !must) vis = 0; }   // below is taken: try above; failing that, hide
+      if (taken(x - hw, y, x + hw, y + 17, used, i)){             // below is taken: try above; failing that, hide
+        y = SCR[o + 1] - r * 1.7 - 22;
+        if (taken(x - hw, y, x + hw, y + 17, used, i) && !must) vis = hub && !hit(x - hw, y, x + hw, y + 17, 0, gEnd, i) && !hit(x - hw, y, x + hw, y + 17, sEnd, used, i) ? 1 : 0;   // a hub is crowded by its own notes by design, so its name may lie over stars, though never over another name
+      }
       if (vis){ shown++; claim(used++, x - hw, y, x + hw, y + 17, i); }
     }
     setLabel(i, vis, x, y);
@@ -1003,7 +1012,8 @@ const ALIAS = { ok: 'ok', up: 'ok', online: 'ok', healthy: 'ok', running: 'ok', 
   off: 'off', offline: 'off', stopped: 'off', inactive: 'off', disabled: 'off', paused: 'off' };
 const stateOf = v => v == null || v === '' ? 'unknown' : ALIAS[str(v).toLowerCase().trim()] || 'unknown';
 const RANK = { bad: 3, warn: 2, ok: 1, off: 0, unknown: 0 };
-let model = { title: '', generated: null, nodes: [], groups: [], links: [], alerts: [], notes: [] };
+let model = { title: '', generated: null, layout: 'arms', nodes: [], groups: [], links: [], alerts: [], notes: [] };
+let demoKind = /[?&]demo=notes(&|$)/.test(location.search) ? 'notes' : CONFIG.demo;   // which built-in demo to fall back on. The viewer can swap it from the panel
 const feed = { mode: 'wait', err: '', at: 0, age: null, text: '' };   // mode: wait, live, demo, lost (it was there and is gone), none (never there), invalid
 
 function metricsOf(m){                          // [{label, value, max, text, status}] or the shorthand {cpu: 0.4}. value is a share from 0 to 1, or any number with a max
@@ -1068,7 +1078,7 @@ function normalise(raw){
   });
   alerts.sort((a, b) => (a.level === 'bad' ? 0 : a.level === 'warn' ? 1 : 2) - (b.level === 'bad' ? 0 : b.level === 'warn' ? 1 : 2));
   const gen = isNum(d.generated) ? d.generated : typeof d.generated === 'string' && isFinite(Date.parse(d.generated)) ? Date.parse(d.generated) / 1000 : null;
-  return { title: str(d.title), generated: gen, nodes, groups, links: links.slice(0, MAXL), alerts, notes };
+  return { title: str(d.title), generated: gen, layout: d.layout === 'web' ? 'web' : 'arms', nodes, groups, links: links.slice(0, MAXL), alerts, notes };
 }
 
 function ingest(m, first){
@@ -1094,14 +1104,46 @@ function ingest(m, first){
 }
 
 // Where everything goes. A name always hashes to the same place, so the sky only rearranges when a group or a node comes or goes.
+/* Linked notes, placed as a web. Every note gathers round the best-connected note it links to, so each hub sits in a burst of its own notes
+   and the bursts are packed side by side, the largest nearest the middle. Notes that link to nothing drift at the rim.
+   The result depends only on ids and links, so it is the same every time. Positions are in world units across the galaxy's disc, plus a height. */
+const SP = 0.5, webMemo = new Map(); let webSig = -1;   // SP: the room each note gets
+function webPlace(g){
+  const M = g.members, at = new Map(M.map((n, j) => [n.i, j])), nb = M.map(() => []), deg = new Float32Array(M.length);
+  for (const e of model.links){ const a = at.get(e.a), b = at.get(e.b); if (a !== undefined) deg[a]++; if (b !== undefined) deg[b]++; if (a !== undefined && b !== undefined && a !== b){ nb[a].push(b); nb[b].push(a); } }
+  const before = (a, b) => deg[a] > deg[b] || (deg[a] === deg[b] && M[a].id < M[b].id);      // a strict order, so following "up" can never go round in a circle
+  const up = M.map((n, j) => { let best = -1; for (const k of nb[j]) if (before(k, j) && (best < 0 || before(k, best))) best = k; return best; });   // each note looks up to its best-connected neighbour
+  const kids = M.map(() => 0); up.forEach(p => { if (p >= 0) kids[p]++; });
+  const head = M.map((n, j) => up[j] < 0 || kids[j] >= 3), depth = new Uint16Array(M.length), mem = new Map();   // a hub: nothing above it, or three or more notes of its own
+  M.forEach((n, j) => { let h = j, d = 0; while (!head[h]){ h = up[h]; d++; } depth[j] = d; if (h !== j) (mem.get(h) || mem.set(h, []).get(h)).push(j); });
+  const hubs = [], loose = [];
+  M.forEach((n, j) => { if (!head[j]) return; const m = (mem.get(j) || []).sort((a, b) => depth[a] - depth[b] || deg[b] - deg[a] || (M[a].id < M[b].id ? -1 : 1)); (deg[j] > 0 || m.length ? hubs : loose).push({ j, m, r: SP * Math.sqrt(m.length + 1.2) + 0.32 }); });
+  hubs.sort((a, b) => b.m.length - a.m.length || deg[b.j] - deg[a.j] || (M[a.j].id < M[b.j].id ? -1 : 1));
+  loose.sort((a, b) => M[a.j].id < M[b.j].id ? -1 : 1);
+  const pos = new Float32Array(M.length * 3), turn = (hashStr('g:' + g.id) % 628) / 100, done = []; let far = 0.8, from = 0;
+  hubs.forEach((h, k) => {                       // walk outward along a spiral until this burst touches no other. Each is smaller than the last, so the search starts near where the last one ended
+    let x = 0, y = 0, t = Math.max(0, from - 50);
+    for (; t < 60000; t++){ const d = k ? 0.42 * Math.sqrt(t + 1) : 0.7, a = t * 2.39996 + turn; x = Math.cos(a) * d; y = Math.sin(a) * d; let free = true; for (let q = 0; q < done.length; q++){ const p = done[q], dx = p.x - x, dy = p.y - y, rr = p.r + h.r + 0.12; if (dx * dx + dy * dy < rr * rr){ free = false; break; } } if (free) break; }
+    from = t; h.x = x; h.y = y; done.push(h); far = Math.max(far, Math.hypot(x, y) + h.r);
+    const hh = hashStr('n:' + M[h.j].id); pos.set([x, y, ((hh % 100) / 100 - 0.5) * 0.3], h.j * 3);
+    h.m.forEach((j, q) => { const rr = SP * Math.sqrt(q + 1.2), a = q * 2.39996 + (hh % 628) / 100, hm = hashStr('n:' + M[j].id); pos.set([x + Math.cos(a) * rr, y + Math.sin(a) * rr, ((hm % 100) / 100 - 0.5) * rr * 0.8], j * 3); });
+  });
+  const n0 = (far + 0.55) * (far + 0.55) / 0.1;  // the loose notes: a sunflower ring outside everything else
+  loose.forEach((h, q) => { const d = 0.316 * Math.sqrt(n0 + q * 1.15), a = q * 2.39996 + turn, hh = hashStr('n:' + M[h.j].id); pos.set([Math.cos(a) * d, Math.sin(a) * d, ((hh % 100) / 100 - 0.5) * 0.5], h.j * 3); far = Math.max(far, d + 0.3); });
+  const hub = new Uint8Array(M.length); hubs.forEach(h => { if (h.m.length >= 2) hub[h.j] = 1; });
+  return { pos, up, hub, R: far + 0.7 };
+}
+
 function layout(hadG){
-  const G = model.groups, placed = [];
+  const G = model.groups, placed = [], web = (CONFIG.layout || model.layout) === 'web';
+  if (web){ const sig = hashStr(model.nodes.map(n => n.id + '>' + n.g).join('|') + '#' + model.links.map(e => e.a + '-' + e.b).join('|')); if (sig !== webSig){ webSig = sig; webMemo.clear(); } }   // worked out again only when the notes or their links change
   const order = G.map((g, i) => i).sort((a, b) => G[b].members.length - G[a].members.length || (G[a].id < G[b].id ? -1 : 1));
   const seq = order.length ? [order[0]].concat(order.slice(1).sort((a, b) => G[a].id < G[b].id ? -1 : 1)) : [];   // the biggest in the middle, the rest round it in name order
   extent = 6;
   seq.forEach((gi, k) => {
     const g = G[gi], h = hashStr('g:' + g.id), f1 = (h & 1023) / 1023, f2 = (h >>> 10 & 1023) / 1023, f3 = (h >>> 20 & 1023) / 1023;
-    const m = g.members.length, R = clamp(2.3 + 0.72 * Math.sqrt(m), 2.9, 18), o = gi * 4, b = gi * 6, dir = f2 < 0.5 ? -1 : 1;   // a galaxy grows with what it holds
+    const wp = web ? webMemo.get(g.id) || webMemo.set(g.id, webPlace(g)).get(g.id) : null;
+    const m = g.members.length, R = wp ? clamp(wp.R, 2.9, 34) : clamp(2.3 + 0.72 * Math.sqrt(m), 2.9, 18), o = gi * 4, b = gi * 6, dir = f2 < 0.5 ? -1 : 1;   // a galaxy grows with what it holds
     let x = 0, y = 0, z = 0;
     if (k){
       const a = k * 2.39996 + 0.9; let dist = placed[0].R + R + 2.6; y = (f1 - 0.5) * 6.5;   // well above and below one another, so the sky has depth from any side
@@ -1115,7 +1157,9 @@ function layout(hadG){
     GB.set([ux, uy, uz, ny * uz - nz * uy, nz * ux - nx * uz, nx * uy - ny * ux], b);
     GW[gi * 2] = dir * (0.014 + 0.014 * f1) * Math.sqrt(3 / R); GW[gi * 2 + 1] = f3 * TAU;       // big galaxies turn more slowly
     g.arms = m > 90 ? 5 : m > 24 ? 4 : m > 10 || f3 > 0.55 ? 3 : 2; g.twist = -dir * (3 + 1.8 * f2);          // a crowded galaxy gets more arms to string its stars along; the arms trail behind the turn
-    g.members.forEach((n, j) => {                                 // its stars: strung out along the arms, alternating between them
+    g.members.forEach((n, j) => {                                 // its stars: gathered round their hubs, or strung out along the arms, alternating between them
+      n.up = -1; LHUB[n.i] = wp ? wp.hub[j] : 0;
+      if (wp){ const x = wp.pos[j * 3], y = wp.pos[j * 3 + 1]; NL.set([gi, Math.hypot(x, y) / R, Math.atan2(y, x), wp.pos[j * 3 + 2] / R], n.i * 4); n.slot = g.id + '|w|' + Math.round(x * 20) + '|' + Math.round(y * 20); n.wx = x; n.wy = y; if (wp.up[j] >= 0) n.up = g.members[wp.up[j]].i; return; }
       const hn = hashStr('n:' + n.id), rf = m === 1 ? 0.52 : 0.24 + 0.72 * Math.pow((j + 0.5) / m, 0.78);
       const th = (j % g.arms) * TAU / g.arms + g.twist * rf + ((hn % 100) / 100 - 0.5) * (0.22 + Math.min(0.4, m / 300)), hh = ((hn >>> 8) % 100 / 100 - 0.5) * 0.07;
       NL.set([gi, rf, th, hh], n.i * 4); n.slot = g.id + '|' + j + '|' + m + '|' + g.arms;
@@ -1123,7 +1167,8 @@ function layout(hadG){
     GSHOW[gi] = g.label ? 1 : 0;
   });
   const asp = W / H; S[HOMER] = clamp(extent * (0.8 + Math.min(0.1, nG * 0.004)) / (Math.tan(FOV / 2) * Math.min(1, asp * 0.72)), 7, 180);
-  model.nodes.map(n => n.i).sort((a, b) => RANK[model.nodes[b].status] - RANK[model.nodes[a].status] || model.nodes[b].weight - model.nodes[a].weight).forEach((i, k) => { LORD[k] = i; });   // whose name is placed first: failing, then needing a look, then the weightiest model.nodes.forEach(n => { LMUST[n.i] = n.status === 'bad' || n.status === 'warn' ? 1 : 0; });
+  model.nodes.map(n => n.i).sort((a, b) => RANK[model.nodes[b].status] - RANK[model.nodes[a].status] || model.nodes[b].weight - model.nodes[a].weight).forEach((i, k) => { LORD[k] = i; });   // whose name is placed first: failing, then needing a look, then the weightiest
+  model.nodes.forEach(n => { LMUST[n.i] = n.status === 'bad' || n.status === 'warn' ? 1 : 0; });   // a troubled star's name is always shown
   S[AGOAL] = model.nodes.some(n => n.status === 'bad') ? 1 : model.nodes.some(n => n.status === 'warn') ? 0.3 : 0;
 }
 
@@ -1169,17 +1214,20 @@ function fill(){
   const r = rng(4711), put = (...v) => { if (nS < MAXS) SPR.set(v, nS++ * 16); };          // its own fixed seed: nothing below shifts when the part above is skipped
   for (let j = 0; j < 10; j++) put(5 + 11 * r(), r(), 0, 0, r(), 0, 1.4 + r(), 3, 0.85, 0.92, 1, 0.9, 0, 0, 0, 0);   // ten falling stars, each on its own clock
   for (let j = 0; j < 28; j++) put(0, r(), 0, 0, (j + r()) / 28 * 0.85, 0, 1.7 + 1.4 * r(), 4, 0.8, 0.93, 1, 1, 0, 0, 0, 0);   // and a shower's worth, which wait for a shower to be called
-  const lenOf = e => N[e.a].g === N[e.b].g ? GALT[N[e.a].g * 4 + 3] * 0.9 : Math.hypot(GALT[N[e.a].g * 4] - GALT[N[e.b].g * 4], GALT[N[e.a].g * 4 + 2] - GALT[N[e.b].g * 4 + 2]);
-  const wanted = model.links.reduce((s, e) => s + 3 + e.rate * 12 + lenOf(e) * 0.6, 0);     // the comets every link would carry if there were no limit
+  const web = N.length > 0 && N[0].wx !== undefined, busy = web ? 0.25 : 1;                 // a web of notes is a quieter thing than a network: far fewer sparks on each thread
+  const lenOf = e => N[e.a].g !== N[e.b].g ? Math.hypot(GALT[N[e.a].g * 4] - GALT[N[e.b].g * 4], GALT[N[e.a].g * 4 + 2] - GALT[N[e.b].g * 4 + 2]) : web ? Math.hypot(N[e.a].wx - N[e.b].wx, N[e.a].wy - N[e.b].wy) : GALT[N[e.a].g * 4 + 3] * 0.9;
+  const want = e => (3 + e.rate * 12) * busy + lenOf(e) * 0.6;
+  const wanted = model.links.reduce((s, e) => s + want(e), 0);                              // the comets every link would carry if there were no limit
   const thin = Math.min(1, MAXS * 0.42 / (wanted + 1)) * D.comets;                         // with a great many links, each carries fewer: the traffic still reads, the work stays bounded, and there is room left for moons
   const ease = clamp(Math.sqrt(90 / (model.links.length + 1)), 0.15, 1);                   // and each is drawn fainter, so a thousand of them still read as threads and not as one white sheet
   model.links.forEach((e, k) => {
     const A = N[e.a], B = N[e.b], live = A.status !== 'off' && B.status !== 'off' && e.status !== 'off', same = A.g === B.g;
     const col = e.status === 'bad' ? STAR.bad : e.status === 'warn' ? STAR.warn : LINKS[hashStr('k:' + e.kind) % LINKS.length];
-    const bend = same ? 0.18 : 0.24, lane = e.twin ? (e.twin % 2 ? 0.08 : -0.08) * Math.ceil(e.twin / 2) : 0, pace = 0.07 + 0.16 * e.rate;
+    const spoke = same && (A.up === e.b || B.up === e.a);         // a note's thread to its own hub: short and straight
+    const bend = spoke ? 0.015 : same ? 0.18 : 0.24, lane = e.twin ? (e.twin % 2 ? 0.08 : -0.08) * Math.ceil(e.twin / 2) : 0, pace = 0.07 + 0.16 * e.rate;
     const len = lenOf(e);
-    LINKB.set([e.a, e.b, bend, lane, col[0], col[1], col[2], live ? 1 : 0, 0.3 + 0.6 * e.rate, r(), e.status === 'bad' || e.status === 'warn' ? Math.max(ease, 0.7) : ease, len], k * 12);
-    for (let j = 0, m = live ? clamp(Math.round((3 + e.rate * 12 + len * 0.6) * thin), 1, 34) : 0; j < m; j++){   // nothing travels a link with a dark end
+    LINKB.set([e.a, e.b, bend, lane, col[0], col[1], col[2], live ? 1 : 0, 0.3 + 0.6 * e.rate, r(), e.status === 'bad' || e.status === 'warn' ? Math.max(ease, 0.7) : spoke ? Math.max(ease, 0.5) : ease, len], k * 12);
+    for (let j = 0, m = live ? clamp(Math.round(want(e) * thin), 1, 34) : 0; j < m; j++){   // nothing travels a link with a dark end
       const big = j % 6 === 0, f = big ? 0.2 : 0.5;               // one in six is a slow, heavy packet; the rest are sparks that dart and spiral round the path
       put(e.a, e.b, bend, lane, (j + r() * 0.7) / m, pace * (big ? 0.5 + 0.3 * r() : 0.8 + 1.6 * r() * r()), big ? 2.2 + r() * 0.8 : 0.9 + r() * 0.8, 0,
         f + (1 - f) * col[0], f + (1 - f) * col[1], f + (1 - f) * col[2], (big ? 0.95 : 0.4 + 0.45 * r()) * (0.45 + 0.55 * ease), big ? 0 : 0.03 + 0.1 * r(), (r() < 0.5 ? -1 : 1) * (2 + 3 * r()), big ? 0.06 : 0.02 + 0.03 * r(), 0);
@@ -1197,6 +1245,31 @@ function fill(){
 
 /* ── demo: a made-up estate, shown only when there is no data file. It is written in exactly the shape SCHEMA.md describes,
    so it doubles as a worked example. Readings wander, and now and then something goes wrong and recovers. */
+function demoData(tick){ return demoKind === 'notes' ? demoNotes() : demo(tick); }
+let notesDemo = null;
+function demoNotes(){                           // a made-up vault of linked notes: hubs with their notes round them, a few threads between topics, some loose notes
+  if (!notesDemo){
+    const r = rng(77), nodes = [], links = [], groups = [], hubs = [];
+    const topics = { Projects: ['Balcony garden', 'Home server', 'Trip to the coast', 'Bike rebuild'], Learning: ['Spanish', 'Watercolour', 'Statistics', 'Bread baking'], Reading: ['Books this year', 'Articles to keep', 'Quotes'], Work: ['Team handbook', 'Quarter plan', 'Hiring'], Journal: ['Weekly reviews'] };
+    const parts = ['ideas', 'log', 'questions', 'checklist', 'sources', 'first draft', 'review', 'budget', 'timeline', 'people', 'tools', 'lessons', 'next steps', 'open problems', 'reading list', 'mistakes'];
+    const add = (id, label, group, heads) => { const days = Math.floor(r() * r() * 400); nodes.push({ id, label, group, kind: 'note', status: days > 180 ? 'off' : 'ok', metrics: [{ label: 'words', text: (40 + Math.floor(r() * r() * 2400)).toLocaleString('en') }], detail: { edited: days < 1 ? 'today' : days + ' days ago' }, moons: heads.map(h => ({ label: h, status: 'ok' })) }); return id; };
+    const link = (from, to) => links.push({ from, to, kind: 'link', rate: 0.3 });
+    for (const g in topics){ groups.push({ id: g, label: g }); topics[g].forEach((t, k) => {
+      const hub = add(g + '/' + t, t, g, ['Overview', 'Open questions', 'Links']), n = g === 'Journal' ? 16 : 5 + Math.floor(r() * 11); hubs.push(hub);
+      for (let j = 0; j < n; j++){
+        const name = g === 'Journal' ? 'Week ' + (j + 1) : t + ' ' + parts[(j + k * 3) % parts.length], id = add(g + '/' + name, name, g, r() < 0.5 ? ['Notes'] : []); link(id, hub);
+        if (g !== 'Journal' && j === 1) for (let w = 0, c = 3 + Math.floor(r() * 4); w < c; w++) link(add(id + ' ' + (w + 1), name + ' ' + (w + 1), g, []), id);   // one note in each burst has entries of its own
+        if (g === 'Journal' && r() < 0.6) link(id, hubs[Math.floor(r() * (hubs.length - 1))]);   // a week's review points at whatever it was about
+        else if (j && r() < 0.18) link(id, nodes[nodes.length - 2].id);
+      }
+    }); }
+    for (let k = 0; k < 9; k++){ const a = hubs[Math.floor(r() * hubs.length)], b = hubs[Math.floor(r() * hubs.length)]; if (a !== b) link(a, b); }
+    ['Inbox', 'Someday', 'Gift ideas', 'Recipes to try', 'Passwords reminder', 'Untitled', 'Packing list'].forEach(n => add('Loose/' + n, n, 'Reading', []));
+    const into = new Map(); links.forEach(l => into.set(l.to, (into.get(l.to) || 0) + 1)); nodes.forEach(n => { n.weight = 1 + (into.get(n.id) || 0); });
+    notesDemo = { title: 'Demo notes', layout: 'web', groups, nodes, links, alerts: [] };
+  }
+  notesDemo.generated = Math.floor(Date.now() / 1000); return notesDemo;
+}
 function demo(tick){
   const wave = (k, base, amp) => clamp(base + amp * Math.sin(tick * 0.31 + k * 1.7) + amp * 0.5 * Math.sin(tick * 0.13 + k * 0.6), 0.02, 0.99), ph = tick % 26;
   const nodes = [], links = [], add = (group, id, kind, weight, moons, extra) => nodes.push(Object.assign({ id, group, kind, weight, status: 'ok',
@@ -1233,7 +1306,7 @@ async function poll(){
   if (polling) return; polling = true;
   const first = feed.mode === 'wait';
   try {
-    if (feed.mode === 'demo'){ feed.at = performance.now(); feed.age = 0; ingest(normalise(demo(demoTick++)), false); }
+    if (feed.mode === 'demo'){ feed.at = performance.now(); feed.age = 0; ingest(normalise(demoData(demoTick++)), false); }
     else {
       let res; try { res = await fetch(CONFIG.dataUrl, { cache: 'no-store' }); } catch (e){ throw new Error('missing'); }
       if (!res.ok) throw new Error(res.status === 404 ? 'missing' : 'HTTP ' + res.status);
@@ -1246,7 +1319,7 @@ async function poll(){
     }
   } catch (e){
     const why = String(e && e.message || e);
-    if (first && why === 'missing' && CONFIG.demoWhenMissing){ feed.mode = 'demo'; ingest(normalise(demo(demoTick++)), true); watch(true); }
+    if (first && why === 'missing' && CONFIG.demoWhenMissing){ feed.mode = 'demo'; ingest(normalise(demoData(demoTick++)), true); watch(true); }
     else { feed.mode = first || feed.mode === 'none' ? 'none' : 'lost'; feed.err = why === 'missing' ? 'not found' : why; header(); }
   }
   polling = false;
@@ -1308,13 +1381,18 @@ function source(){                              // where the data came from and 
     const stale = age != null && age > CONFIG.staleAfterSec;
     text = age == null ? 'Live from ' + name + '. It carries no "generated" time, so its age is unknown.' : stale ? name + ' is ' + ago(age) + ' old. Whatever writes it may have stopped.' : 'Live from ' + name + ', written ' + ago(Math.max(0, age)) + ' ago.';
     cls = stale ? 'warn' : ''; short = age == null ? 'live, age unknown' : (stale ? 'stale: ' : 'data ') + ago(Math.max(0, age)) + ' old';
-  } else if (feed.mode === 'demo'){ text = 'Demo data, made up. Put a ' + name + ' beside this page to show your own.'; short = 'demo data'; cls = 'warn'; }
+  } else if (feed.mode === 'demo'){ text = 'Demo data, made up. Put a ' + name + ' beside this page to show your own.<button type="button" data-swap="1">See the ' + (demoKind === 'notes' ? 'servers' : 'linked notes') + ' demo</button>'; short = 'demo data'; cls = 'warn'; }
   else if (feed.mode === 'lost'){ text = name + ' is unreachable (' + esc(feed.err) + '). Showing what was last read.'; short = 'data unreachable'; cls = 'bad'; }
   else if (feed.mode === 'invalid'){ text = name + ' is not valid JSON: ' + esc(feed.err) + '. Nothing new is shown until it is fixed.'; short = 'data file is broken'; cls = 'bad'; }
   else if (feed.mode === 'none'){ text = feed.err === 'not found' ? 'No ' + name + ' beside this page.' : name + ' could not be read (' + esc(feed.err) + ').'; short = 'no data'; cls = 'bad'; }
   else { text = 'Reading ' + name + '…'; short = 'waiting for data'; }
-  el.innerHTML = text; el.className = cls; sub.textContent = short; sub.className = cls;
+  if (el._said !== text){ el._said = text; el.innerHTML = text; }   // rewritten only when it changes, so the button in it is not replaced under the pointer
+  el.className = cls; sub.textContent = short; sub.className = cls;
 }
+$('src').addEventListener('click', e => {       // the two built-in demos: swap between them
+  if (!(e.target.dataset && e.target.dataset.swap) || feed.mode !== 'demo') return;
+  demoKind = demoKind === 'notes' ? 'estate' : 'notes'; goHome(); ingest(normalise(demoData(demoTick++)), true); source();
+});
 function banner(){                              // the most pressing alert; with several, they take turns
   const urgent = model.alerts.filter(a => a.level !== 'info'), list = urgent.length ? urgent : model.alerts;   // plain notices get the pill only when nothing more pressing wants it
   if (!list.length){ alertBox.className = ''; return; }
