@@ -72,6 +72,7 @@ h1,h2,h3,p{margin:0}
 #groups span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
 #groups em{font:normal 12px var(--mono);color:var(--dim)}
 #src{margin-top:10px;padding-top:8px;border-top:1px solid var(--edge);font-size:12px;color:var(--dim)}
+#src button{display:block;margin-top:7px;padding:0;color:var(--ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 
 /* the readout: rows of name and value; a metric also gets a bar, but only if it was measured */
 .row{display:flex;flex-wrap:wrap;justify-content:space-between;column-gap:12px;color:var(--dim)}
@@ -1012,7 +1013,7 @@ const ALIAS = { ok: 'ok', up: 'ok', online: 'ok', healthy: 'ok', running: 'ok', 
 const stateOf = v => v == null || v === '' ? 'unknown' : ALIAS[str(v).toLowerCase().trim()] || 'unknown';
 const RANK = { bad: 3, warn: 2, ok: 1, off: 0, unknown: 0 };
 let model = { title: '', generated: null, layout: 'arms', nodes: [], groups: [], links: [], alerts: [], notes: [] };
-const DEMO = /[?&]demo=notes(&|$)/.test(location.search) ? 'notes' : CONFIG.demo;   // which built-in demo to fall back on
+let demoKind = /[?&]demo=notes(&|$)/.test(location.search) ? 'notes' : CONFIG.demo;   // which built-in demo to fall back on. The viewer can swap it from the panel
 const feed = { mode: 'wait', err: '', at: 0, age: null, text: '' };   // mode: wait, live, demo, lost (it was there and is gone), none (never there), invalid
 
 function metricsOf(m){                          // [{label, value, max, text, status}] or the shorthand {cpu: 0.4}. value is a share from 0 to 1, or any number with a max
@@ -1244,7 +1245,7 @@ function fill(){
 
 /* ── demo: a made-up estate, shown only when there is no data file. It is written in exactly the shape SCHEMA.md describes,
    so it doubles as a worked example. Readings wander, and now and then something goes wrong and recovers. */
-function demoData(tick){ return DEMO === 'notes' ? demoNotes() : demo(tick); }
+function demoData(tick){ return demoKind === 'notes' ? demoNotes() : demo(tick); }
 let notesDemo = null;
 function demoNotes(){                           // a made-up vault of linked notes: hubs with their notes round them, a few threads between topics, some loose notes
   if (!notesDemo){
@@ -1380,13 +1381,18 @@ function source(){                              // where the data came from and 
     const stale = age != null && age > CONFIG.staleAfterSec;
     text = age == null ? 'Live from ' + name + '. It carries no "generated" time, so its age is unknown.' : stale ? name + ' is ' + ago(age) + ' old. Whatever writes it may have stopped.' : 'Live from ' + name + ', written ' + ago(Math.max(0, age)) + ' ago.';
     cls = stale ? 'warn' : ''; short = age == null ? 'live, age unknown' : (stale ? 'stale: ' : 'data ') + ago(Math.max(0, age)) + ' old';
-  } else if (feed.mode === 'demo'){ text = 'Demo data, made up. Put a ' + name + ' beside this page to show your own.'; short = 'demo data'; cls = 'warn'; }
+  } else if (feed.mode === 'demo'){ text = 'Demo data, made up. Put a ' + name + ' beside this page to show your own.<button type="button" data-swap="1">See the ' + (demoKind === 'notes' ? 'servers' : 'linked notes') + ' demo</button>'; short = 'demo data'; cls = 'warn'; }
   else if (feed.mode === 'lost'){ text = name + ' is unreachable (' + esc(feed.err) + '). Showing what was last read.'; short = 'data unreachable'; cls = 'bad'; }
   else if (feed.mode === 'invalid'){ text = name + ' is not valid JSON: ' + esc(feed.err) + '. Nothing new is shown until it is fixed.'; short = 'data file is broken'; cls = 'bad'; }
   else if (feed.mode === 'none'){ text = feed.err === 'not found' ? 'No ' + name + ' beside this page.' : name + ' could not be read (' + esc(feed.err) + ').'; short = 'no data'; cls = 'bad'; }
   else { text = 'Reading ' + name + '…'; short = 'waiting for data'; }
-  el.innerHTML = text; el.className = cls; sub.textContent = short; sub.className = cls;
+  if (el._said !== text){ el._said = text; el.innerHTML = text; }   // rewritten only when it changes, so the button in it is not replaced under the pointer
+  el.className = cls; sub.textContent = short; sub.className = cls;
 }
+$('src').addEventListener('click', e => {       // the two built-in demos: swap between them
+  if (!(e.target.dataset && e.target.dataset.swap) || feed.mode !== 'demo') return;
+  demoKind = demoKind === 'notes' ? 'estate' : 'notes'; goHome(); ingest(normalise(demoData(demoTick++)), true); source();
+});
 function banner(){                              // the most pressing alert; with several, they take turns
   const urgent = model.alerts.filter(a => a.level !== 'info'), list = urgent.length ? urgent : model.alerts;   // plain notices get the pill only when nothing more pressing wants it
   if (!list.length){ alertBox.className = ''; return; }

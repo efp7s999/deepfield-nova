@@ -4,7 +4,7 @@
 
 ![Deepfield NOVA running: a service fails and turns red, the camera flies in to its readout, a comet crosses, and the service recovers](docs/demo.gif)
 
-**[Live demo](https://efp7s999.github.io/deepfield-nova/)**: runs in your browser on made-up data, nothing to install. There is a second one for [linked notes](https://efp7s999.github.io/deepfield-nova/?demo=notes).
+**[Live demo](https://efp7s999.github.io/deepfield-nova/)**: runs in your browser on made-up data, nothing to install. There is a second one for [linked notes](https://efp7s999.github.io/deepfield-nova/?demo=notes), and a button in the page's top-right panel swaps between the two.
 
 - **It reads from across the room.** Healthy is calm. Trouble turns amber or red and moves.
 - **It is one file.** `index.html` is the whole thing: hand-written WebGL2, about 140 KB, and it works offline.
