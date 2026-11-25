@@ -30,7 +30,7 @@ Work through these in order. Do not skip the validator.
    | Tailscale, WireGuard | peer | tag or owner | advertised routes | none (a mesh is not a flow) |
    | Prometheus, Uptime Kuma | target or monitor | job or tag | individual checks | none |
    | An agent harness | agent or worker | team or pipeline | its tools or queues | who hands work to whom |
-   | A folder of notes | note | top-level folder | headings | links between notes (see `adapters/markdown-vault.mjs`) |
+   | A folder of notes, an Obsidian vault | note | top-level folder, or tag | headings | links between notes. Do not write this one: `adapters/markdown-vault.mjs` already does it |
 
    Status must come from something measured: a health check, an exit code, a threshold the user agrees to. If nothing says whether a thing is healthy, leave `status` out. Do not default to `ok`.
 
@@ -83,11 +83,13 @@ A large estate (hundreds of servers, VMs, containers) is expected. Work through 
 
    Then reload, check the footer says nothing was left out, and tell the user the new numbers and that Detail (bottom of the page) is the lever if their machine struggles.
 
+Where the links are the point (notes, a dependency graph, who talks to whom), put `"layout": "web"` at the top of the file. Each node then gathers round the best-connected node it links to, and hubs sit in a burst of their own. Leave it out for servers and services, which read better strung along the arms.
+
 More connections between stars are just more entries in `links`: any `kind` string works and each distinct kind gets its own colour from a fixed set. A link with `status` `warn` or `bad` is drawn in amber or red and kept bright even in a crowd.
 
 ## If asked to change how it looks
 
-`index.html` is hand-written WebGL2 with sections marked by `/* ── … */` comments, in this order: `CONFIG`, detail levels and limits, shaders, state and GL setup, the frame (`step`, `draw`, `placeLabels`), data (`normalise`, `ingest`, `layout`, `fill`, `demo`), words (labels, panels, readout), input, the viewer's controls, sky events (`spawn`), boot.
+`index.html` is hand-written WebGL2 with sections marked by `/* ── … */` comments, in this order: `CONFIG`, detail levels and limits, shaders, state and GL setup, the frame (`step`, `draw`, `placeLabels`), data (`normalise`, `ingest`, `webPlace`, `layout`, `fill`, `demo`), words (labels, panels, readout), input, the viewer's controls, sky events (`spawn`), boot.
 
 Constraints that keep it light, and must survive any change:
 

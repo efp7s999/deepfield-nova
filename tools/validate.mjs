@@ -85,6 +85,7 @@ if (data.alerts != null && !Array.isArray(data.alerts)) warn('"alerts" should be
 });
 
 const gen = isNum(data.generated) ? data.generated : typeof data.generated === 'string' ? Date.parse(data.generated) / 1000 : NaN;
+if (data.layout != null && data.layout !== 'arms' && data.layout !== 'web') warn(`"layout" is ${JSON.stringify(data.layout)}: the page knows "arms" and "web", and will use "arms"`);
 if (data.generated == null) warn('no "generated" time, so the page cannot say how old the data is or notice that it has gone stale');
 else if (!Number.isFinite(gen)) warn('"generated" should be unix seconds or an ISO 8601 time; as it is, the age cannot be shown');
 else if (gen > 1e12) warn('"generated" looks like milliseconds; it should be seconds');

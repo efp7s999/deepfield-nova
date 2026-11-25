@@ -24,6 +24,7 @@ A complete example is in [`deepfield.sample.json`](deepfield.sample.json). Check
 | `links` | array | Flows between nodes. Each becomes a stream of light. |
 | `alerts` | array | Messages for the pill at the top of the page. |
 | `title` | string | Shown top left. |
+| `layout` | string | How stars are placed inside a galaxy. `"arms"` (the default) strings them along its spiral arms: right for servers and services. `"web"` gathers each node round the best-connected node it links to, so hubs sit in a burst of their own: right for notes and anything else whose links are the point. |
 | `generated` | number or string | When the file was written: unix seconds, or an ISO 8601 time. The page uses it to show the data's age, and flags the data as stale after 2 minutes. Leave it out and the age shows as unknown. |
 
 ## A node

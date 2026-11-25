@@ -4,10 +4,11 @@
 
 ![Deepfield NOVA running: a service fails and turns red, the camera flies in to its readout, a comet crosses, and the service recovers](docs/demo.gif)
 
-**[Live demo](https://efp7s999.github.io/deepfield-nova/)**: runs in your browser on made-up data, nothing to install.
+**[Live demo](https://efp7s999.github.io/deepfield-nova/)**: runs in your browser on made-up data, nothing to install. There is a second one for [linked notes](https://efp7s999.github.io/deepfield-nova/?demo=notes).
 
 - **It reads from across the room.** Healthy is calm. Trouble turns amber or red and moves.
 - **It is one file.** `index.html` is the whole thing: hand-written WebGL2, about 140 KB, and it works offline.
+- **Your Obsidian vault as a web of notes.** One command, below. Each note gathers round the notes it links to.
 - **Your own data in one prompt.** Open this folder in Claude Code or another coding agent, say what you run, and it writes the adapter for you. Two adapters are already here: one for a folder of Markdown notes, one for the machine it runs on.
 - **It grows with you.** 512 nodes, 32 groups and 1,024 links as shipped, and one line raises that.
 - **It keeps to itself.** The page talks to nothing but its own data file.
@@ -61,11 +62,26 @@ Connect this dashboard to [my Proxmox host and the VMs on it]. Follow AGENTS.md.
 
 ### 2. With an adapter that is already here
 
-A folder of Markdown notes (Obsidian, Logseq, any second brain). Folders become galaxies, notes become stars, links between notes become streams, headings become moons. Notes with broken links glow amber; notes untouched for six months go cold.
+#### An Obsidian vault, or any folder of Markdown notes
 
 ```sh
-node adapters/markdown-vault.mjs ~/notes --watch 30
+node adapters/markdown-vault.mjs ~/path/to/vault --watch 30
 ```
+
+![A vault of linked notes: each hub note sits in a burst of the notes that link to it, with threads between topics](docs/notes.jpg)
+
+Notes become stars and gather round the note they link to most, so every hub sits in a burst of its own notes. Folders become galaxies, links become threads, a note's headings become its moons. Notes that link to nothing drift at the rim, and notes untouched for six months go cold. Point at a note to light up its links; click it to fly in.
+
+- **Links it follows:** `[[Note]]`, `[[Note|shown text]]`, `[[Note#Heading]]`, `[[Note^block]]`, `![[Note]]` and `[text](folder/note.md)`. A link finds its note by path, by file name, or by an alias in the note's front matter, the way Obsidian does.
+- **Tags:** from front matter and from `#tags` in the text. `--group tag` makes galaxies from tags, not folders; a flat vault that uses tags gets that without asking.
+- **Size:** the 500 best-connected notes are drawn (`--max`). For more, raise `LIMITS` in `index.html`; see "Big estates" below.
+- **Left out:** `.obsidian`, `.trash` and other hidden folders, Excalidraw drawings, and any folder you name with `--ignore "Templates,Archive"`.
+- **Notes not written yet:** a link to a note that does not exist is listed in the readout and nothing more. `--strict` turns such notes amber.
+- **It only reads.** Nothing in the vault is ever changed.
+
+The output holds your notes' titles, paths, tags and headings, never their text. Anyone who can open the page can read that file, so keep the page private if the titles are.
+
+Any other data can ask for the same placement with `"layout": "web"` in the data file.
 
 This machine: processor, memory, disks, uptime.
 
@@ -172,6 +188,8 @@ The `CONFIG` block at the top of the script in `index.html`:
 | `events` | `true` | sky events; `false` removes them and their control does nothing |
 | `eventEverySec` | `[22, 48]` | the gap between sky events, picked at random between the two |
 | `scenery` | `true` | the ringed giant and the supernova remnant in the far background |
+| `demo` | `'estate'` | which made-up data shows when there is no file: `'estate'` (servers and agents) or `'notes'` (linked notes). Adding `?demo=notes` to the address picks the second |
+| `layout` | `''` | empty: place stars as the data file asks. `'arms'` or `'web'` forces one for every file |
 
 ## What it asks of your machine
 
@@ -217,7 +235,7 @@ deepfield.sample.json    an example data file
 SCHEMA.md                the data format
 AGENTS.md, CLAUDE.md     instructions for coding agents
 PROMPT.md                prompts to copy
-adapters/                markdown-vault.mjs, local-machine.mjs
+adapters/                markdown-vault.mjs (Obsidian and other Markdown notes), local-machine.mjs
 tools/                   validate.mjs, merge.mjs
 ```
 
